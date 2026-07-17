@@ -1,5 +1,8 @@
 # Novel Structure – Obsidian Plugin
 
+ATTENTION: This project is almost fully vibe coded using claude code.
+It is to test the capabilities of claude code (and get fast results)
+
 An Obsidian plugin for managing a novel's structure (section → chapter →
 subchapter → scene) as individual Markdown notes with frontmatter — with a
 root note per novel, automatic word/page counts, status tracking, character
