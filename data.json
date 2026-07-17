@@ -1,0 +1,24 @@
+{
+  "structureFolder": "10_Text/Ehrenfest/EhrenfestRoman",
+  "wordsPerPage": 250,
+  "headingMapping": [
+    {
+      "level": 1,
+      "type": "section"
+    },
+    {
+      "level": 2,
+      "type": "chapter"
+    },
+    {
+      "level": 3,
+      "type": "subchapter"
+    },
+    {
+      "level": 4,
+      "type": "scene"
+    }
+  ],
+  "privateTodoFile": "Private-Todos.md",
+  "dailySelections": {}
+}

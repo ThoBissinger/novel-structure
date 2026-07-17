@@ -1,0 +1,9 @@
+{
+  "id": "novel-structure",
+  "name": "Novel Structure",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.10",
+  "description": "Novel structure (sections/chapters/subchapters/scenes) as frontmatter notes: auto word/page count, status, character tracking, todo center, and Word import with heading mapping.",
+  "author": "you",
+  "isDesktopOnly": false
+}

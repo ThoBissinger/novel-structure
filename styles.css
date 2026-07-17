@@ -1,0 +1,6 @@
+.novel-structure-row:hover {
+  background-color: var(--background-modifier-hover);
+}
+.novel-structure-meta {
+  font-size: 0.85em;
+}

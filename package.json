@@ -1,0 +1,21 @@
+{
+  "name": "novel-structure",
+  "version": "0.1.0",
+  "description": "Obsidian plugin for novel structure management",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/turndown": "^5.0.6",
+    "esbuild": "^0.20.0",
+    "obsidian": "latest",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "mammoth": "^1.7.0",
+    "turndown": "^7.2.4"
+  }
+}
