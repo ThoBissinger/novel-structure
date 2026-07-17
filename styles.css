@@ -4,3 +4,655 @@
 .novel-structure-meta {
   font-size: 0.85em;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Novel board (card view)                                                 */
+/* ---------------------------------------------------------------------- */
+
+.novel-board-view {
+  padding: 4px 8px 24px 8px;
+}
+
+.novel-board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.novel-board-toolbar-label {
+  font-size: 0.8em;
+  opacity: 0.65;
+}
+
+.novel-board-toolbar-select {
+  font-size: 0.85em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.novel-board-section {
+  margin-bottom: 20px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 12px 14px 12px;
+}
+
+/* A bracket nested inside another bracket (e.g. a chapter framing its
+   subchapters, inside a section) reads better slightly more compact and on
+   an alternating background than a plain repeat of the outer frame. */
+.novel-board-section .novel-board-section {
+  padding: 8px 10px 10px 10px;
+  margin-bottom: 14px;
+  background: var(--background-primary);
+}
+.novel-board-section .novel-board-section .novel-board-section-title {
+  font-size: 0.92em;
+}
+
+.novel-board-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.novel-board-section-title {
+  font-weight: 700;
+  font-size: 1.05em;
+  cursor: pointer;
+}
+.novel-board-section-title:hover {
+  text-decoration: underline;
+}
+
+.novel-board-section-summary {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.novel-board-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.novel-board-children {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--background-modifier-border);
+}
+
+.novel-board-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  padding: 8px 10px;
+}
+
+.novel-board-card.is-expanded {
+  grid-column: 1 / -1;
+  background: var(--background-primary);
+}
+
+.novel-board-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.novel-board-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.novel-board-card-title {
+  font-weight: 600;
+  flex: 1;
+}
+
+.novel-board-open-btn {
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.novel-board-open-btn:hover {
+  opacity: 1;
+}
+
+.novel-board-summary {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin: 6px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.novel-board-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.novel-board-chip {
+  font-size: 0.78em;
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.novel-board-motif-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.novel-board-motif-chip {
+  font-size: 0.72em;
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.novel-board-form {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.novel-board-field-row {
+  display: flex;
+  gap: 10px;
+}
+
+.novel-board-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.novel-board-field-narrow {
+  flex: 0 0 72px;
+}
+
+.novel-board-field-label {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.55;
+}
+
+.novel-board-field-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 0.9em;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.novel-board-field-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+textarea.novel-board-field-input {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.novel-board-readonly {
+  font-size: 0.8em;
+  margin: 6px 0 0 0;
+}
+
+.novel-board-copyfrom-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.novel-board-copyfrom-label {
+  font-size: 0.72em;
+  opacity: 0.55;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.novel-board-copyfrom-btn {
+  font-size: 0.75em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+.novel-board-copyfrom-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.novel-board-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.novel-board-editable-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8em;
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  padding: 1px 4px 1px 8px;
+}
+
+.novel-board-chip-open {
+  cursor: pointer;
+}
+.novel-board-chip-open:hover {
+  text-decoration: underline;
+  color: var(--text-accent);
+}
+
+.novel-board-chip-remove {
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 0 3px;
+}
+.novel-board-chip-remove:hover {
+  opacity: 1;
+  color: var(--text-error);
+}
+
+.novel-board-chip-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.novel-board-chip-input {
+  flex: 1;
+  min-width: 70px;
+  font-size: 0.85em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.novel-board-chip-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.novel-board-chip-add-btn {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.novel-board-chip-add-btn:hover {
+  opacity: 1;
+}
+.novel-board-chip-add-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.novel-board-todos {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--background-modifier-border);
+}
+
+.novel-board-todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.novel-board-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 5px;
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+}
+.novel-board-todo-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.novel-board-todo-text {
+  flex: 1;
+  font-size: 0.85em;
+}
+.novel-board-todo-text.is-done {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.novel-board-todo-priority-chip {
+  font-size: 0.68em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+}
+
+.novel-board-todo-add-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.novel-board-conflicts {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--background-modifier-border);
+}
+
+.novel-board-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.novel-board-conflict-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.novel-board-conflict-row .novel-board-editable-chip {
+  flex-shrink: 0;
+  max-width: 40%;
+  margin-top: 3px;
+}
+.novel-board-conflict-row .novel-board-field-input {
+  flex: 1;
+  font-size: 0.85em;
+}
+.novel-board-conflict-dev {
+  resize: vertical;
+  min-height: 2.2em;
+  font-family: inherit;
+}
+
+.novel-board-conflict-add-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Todo center (modal)                                                     */
+/* ---------------------------------------------------------------------- */
+
+.novel-todo-modal {
+  width: min(640px, 92vw);
+}
+.novel-todo-modal .modal-content {
+  max-height: 78vh;
+  overflow-y: auto;
+}
+
+.novel-metadata-modal {
+  width: min(920px, 94vw);
+}
+.novel-metadata-modal .modal-content {
+  max-height: 82vh;
+  overflow-y: auto;
+}
+
+.novel-todo-day-box {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 14px 14px 14px;
+  margin-bottom: 14px;
+  background: var(--background-secondary);
+}
+
+.novel-todo-day-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.novel-todo-day-header h3 {
+  margin: 0;
+  font-size: 1em;
+}
+
+.novel-todo-day-icon {
+  display: inline-flex;
+  opacity: 0.75;
+}
+.novel-todo-day-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.novel-todo-hint {
+  opacity: 0.7;
+  margin: 6px 0 8px 0;
+  font-size: 0.9em;
+}
+
+.novel-todo-sublabel {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  margin-top: 10px;
+  margin-bottom: 2px;
+}
+
+.novel-todo-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px 0;
+}
+.novel-todo-progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.novel-todo-progress-bar {
+  height: 100%;
+  background: var(--interactive-accent);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+.novel-todo-progress-label {
+  font-size: 0.75em;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.novel-todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.novel-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-left: 3px solid transparent;
+  border-radius: 4px;
+}
+.novel-todo-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.novel-todo-checkbox {
+  flex-shrink: 0;
+}
+
+.novel-todo-text {
+  flex: 1;
+  font-size: 0.92em;
+}
+.novel-todo-text.is-done {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.novel-todo-source {
+  font-size: 0.72em;
+  opacity: 0.65;
+  cursor: pointer;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  white-space: nowrap;
+}
+.novel-todo-source:hover {
+  opacity: 1;
+}
+
+.novel-todo-priority-chip {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  white-space: nowrap;
+}
+
+.novel-todo-add-select {
+  font-size: 0.75em;
+  max-width: 130px;
+}
+
+.novel-todo-remove-btn {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.45;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.novel-todo-remove-btn:hover {
+  opacity: 1;
+  color: var(--text-error);
+}
+.novel-todo-remove-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.novel-todo-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 6px 0;
+  font-weight: 600;
+  font-size: 0.85em;
+}
+
+.novel-todo-priority-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.novel-todo-divider {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 16px 0;
+}
+
+.novel-todo-quickadd .setting-item {
+  border: none;
+  padding: 4px 0;
+}
+
+.novel-todo-empty {
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Editor-header actions on a structure note                               */
+/* ---------------------------------------------------------------------- */
+
+/* Hides Obsidian's own Properties/frontmatter widget, scoped to whichever
+   view currently has this class (toggled per-view by the "eye" action) —
+   never touches the underlying frontmatter data, purely visual. Obsidian's
+   internal class names for this aren't officially documented and can differ
+   across modes/versions, so several candidate selectors are covered here;
+   !important because Obsidian's own inline/computed styles otherwise win. */
+.novel-structure-hide-frontmatter .metadata-container,
+.novel-structure-hide-frontmatter .metadata-properties-heading,
+.novel-structure-hide-frontmatter .metadata-properties,
+.novel-structure-hide-frontmatter .frontmatter-container,
+.novel-structure-hide-frontmatter .frontmatter,
+.novel-structure-hide-frontmatter .cm-frontmatter {
+  display: none !important;
+}
+
+.novel-structure-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px 0;
+}
+.novel-structure-inline-btn {
+  font-size: 0.8em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+.novel-structure-inline-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+@keyframes novel-board-flash-anim {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: var(--text-selection);
+  }
+}
+.novel-board-flash {
+  animation: novel-board-flash-anim 1.2s ease-out;
+  border-radius: 6px;
+}

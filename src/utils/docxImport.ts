@@ -4,6 +4,7 @@ import TurndownService from "turndown";
 import { HeadingMappingEntry, NovelStructureSettings, ParsedImport, ParsedNode } from "../types";
 import { structureFileTitle, uniqueFileName } from "./files";
 import { buildStructureFrontmatter } from "./frontmatter";
+import { joinBody } from "./noteBody";
 import { updateStructureMetadata } from "./rootNote";
 import { calculatePages, countWords } from "./text";
 
@@ -15,6 +16,20 @@ import { calculatePages, countWords } from "./text";
 //                             vault files, with robust parent assignment
 //                             via a level stack.
 // ---------------------------------------------------------------------------
+
+/**
+ * Reads a heading element's title, stripping mammoth's inline footnote/
+ * endnote reference markers (rendered as e.g. <sup><a href="#footnote-3"
+ * id="footnoteref-3">3</a></sup> right inside the heading text) so they
+ * don't end up appended to the title as a stray number.
+ */
+function extractHeadingTitle(el: Element): string {
+  const clone = el.cloneNode(true) as Element;
+  clone
+    .querySelectorAll('a[href^="#footnote"], a[href^="#endnote"], a[id^="footnoteref"], a[id^="endnoteref"]')
+    .forEach((a) => (a.closest("sup") ?? a).remove());
+  return clone.textContent?.trim() ?? "";
+}
 
 /**
  * Reads a .docx file and turns it into a flat list of "parsed nodes" (one
@@ -58,7 +73,14 @@ export async function parseDocx(
 
     if (headingMatch) {
       const level = parseInt(headingMatch[1], 10);
-      const title = el.textContent?.trim() || "Untitled";
+      const title = extractHeadingTitle(el);
+
+      if (!title) {
+        // Empty heading-styled paragraph (common Word artifact — a blank
+        // line or page break carrying heading formatting). Not a real
+        // structural node; skip it instead of creating an empty "Untitled" file.
+        continue;
+      }
 
       if (!allowedLevels.has(level)) {
         // Unmapped level: keep it as an inline sub-heading in the body text
@@ -100,12 +122,16 @@ export async function parseDocx(
  * starts again at 1.
  * `rootFileName` (basename of the root note, if any) is used as the parent
  * of the top-level imported nodes instead of leaving them without a parent.
+ * `importText` false creates structure-only files (titles/metadata, 0 words,
+ * empty "## Notes" scaffold) without pulling in any prose — useful to set up
+ * the skeleton from a Word outline before the draft text exists.
  */
 export async function writeStructureTree(
   app: App,
   settings: NovelStructureSettings,
   parsed: ParsedImport,
-  rootFileName: string | null
+  rootFileName: string | null,
+  importText: boolean = true
 ): Promise<number> {
   const folder = settings.structureFolder;
   if (!(await app.vault.adapter.exists(folder))) {
@@ -127,8 +153,12 @@ export async function writeStructureTree(
 
     const desiredTitle = structureFileTitle(settings, node.type, node.title);
     const fileName = uniqueFileName(app, folder, desiredTitle);
-    const contentText = node.contentParts.join("\n\n");
-    const wordCount = countWords(contentText);
+    const fullText = node.contentParts.join("\n\n");
+    const contentText = importText ? fullText : "";
+    // Word count always reflects the actual Word-doc length for this node,
+    // even when the prose itself isn't imported into the body — gives a
+    // real reference number instead of a stale 0 for structure-only imports.
+    const wordCount = countWords(fullText);
     const pageCount = calculatePages(wordCount, settings.wordsPerPage);
 
     const frontmatter = buildStructureFrontmatter({
@@ -141,7 +171,7 @@ export async function writeStructureTree(
       pageCount,
     });
 
-    await app.vault.create(`${folder}/${fileName}.md`, frontmatter + contentText);
+    await app.vault.create(`${folder}/${fileName}.md`, frontmatter + joinBody(contentText, ""));
     filesCreated++;
 
     stack.push({ level: node.level, fileName });

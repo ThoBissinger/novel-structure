@@ -1,36 +1,48 @@
 import { App, Modal, Setting } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_ORDER, TodoItem } from "../../types";
-import { collectTodos, todayDate } from "../../utils/todos";
+import { collectTodos, todayDate, tomorrowDate } from "../../utils/todos";
 
 type SelectionValue = "none" | "maybe" | "must";
 
+/** "today"/"tomorrow" when targetDate matches, otherwise the raw date — works
+ * whether this is run as a morning ritual (planning today) or an evening
+ * one (planning tomorrow), since only the date passed in differs. */
+function friendlyDateLabel(targetDate: string): string {
+  if (targetDate === todayDate()) return "today";
+  if (targetDate === tomorrowDate()) return "tomorrow";
+  return targetDate;
+}
+
 export class DailySelectionModal extends Modal {
   plugin: NovelStructurePlugin;
+  targetDate: string;
   onDone: () => void;
   todos: TodoItem[] = [];
   selection: Map<string, SelectionValue> = new Map();
   hintEl!: HTMLElement;
 
-  constructor(app: App, plugin: NovelStructurePlugin, onDone: () => void) {
+  constructor(app: App, plugin: NovelStructurePlugin, targetDate: string, onDone: () => void) {
     super(app);
     this.plugin = plugin;
+    this.targetDate = targetDate;
     this.onDone = onDone;
   }
 
   async onOpen() {
     const { contentEl } = this;
-    contentEl.createEl("h2", { text: "Morning ritual: what will you tackle today?" });
+    const label = friendlyDateLabel(this.targetDate);
+    contentEl.createEl("h2", { text: `Plan your todos for ${label}` });
     const introText = contentEl.createEl("p", {
       text:
         "Recommendation (inspired by \"The Perfect Day Formula\"/getting-things-done style planning): " +
-        "pick at most 3 must-do todos and 3 maybe todos. This is a suggestion, not a hard limit.",
+        `pick at most 3 must-do todos and 3 maybe todos for ${label}. This is a suggestion, not a hard limit.`,
     });
     introText.style.opacity = "0.8";
 
     this.hintEl = contentEl.createEl("p");
 
-    const existing = this.plugin.settings.dailySelections[todayDate()];
+    const existing = this.plugin.settings.dailySelections[this.targetDate];
     this.todos = (await collectTodos(this.plugin)).filter((t) => !t.done);
 
     if (this.todos.length === 0) {
@@ -75,8 +87,8 @@ export class DailySelectionModal extends Modal {
             if (value === "must") must.push(id);
             if (value === "maybe") maybe.push(id);
           });
-          this.plugin.settings.dailySelections[todayDate()] = {
-            date: todayDate(),
+          this.plugin.settings.dailySelections[this.targetDate] = {
+            date: this.targetDate,
             must,
             maybe,
           };

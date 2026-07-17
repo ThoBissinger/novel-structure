@@ -7,15 +7,23 @@ import { extractLinkBasename, isStructureFile } from "./files";
 // folder. All top-level sections attach to it via "parent", turning the
 // structure into one connected tree instead of a pile of loose files.
 //
-// updateStructureMetadata() additionally keeps three things in sync after
+// updateStructureMetadata() additionally keeps four things in sync after
 // every change:
 //  - the root note's total_word_count / total_page_count
 //  - each note's "subsections" list (its children, in order)
 //  - each note's "previous" / "next" sibling links
+//  - each note's "global_order": a single counter incrementing across the
+//    whole tree in reading order (depth-first, children sorted by their
+//    local "order"). "order" alone only counts within one parent, so it's
+//    useless for cross-cutting Dataview queries (e.g. "show me where this
+//    conflict develops across the whole book, in story order") — global_order
+//    gives those a reliable single sort key.
 // All writes are diff-checked first so an update that doesn't actually
 // change anything never touches the file (avoids needless disk writes and
 // modify-event cascades).
 // ---------------------------------------------------------------------------
+
+const MAX_TREE_DEPTH = 40; // safety guard against malformed/circular parent links
 
 export function findRootNote(app: App, settings: NovelStructureSettings): TFile | null {
   const candidates = app.vault.getMarkdownFiles().filter((f) => {
@@ -179,4 +187,21 @@ export async function updateStructureMetadata(app: App, settings: NovelStructure
       }
     }
   }
+
+  // --- global_order: depth-first counter across the whole tree ---
+  let counter = 0;
+  const assignGlobalOrder = async (basename: string, depth: number) => {
+    if (depth > MAX_TREE_DEPTH) return;
+    for (const child of childrenByParent.get(basename) ?? []) {
+      counter++;
+      const fm = app.metadataCache.getFileCache(child)?.frontmatter;
+      if (fm?.global_order !== counter) {
+        await app.fileManager.processFrontMatter(child, (f) => {
+          f.global_order = counter;
+        });
+      }
+      await assignGlobalOrder(child.basename, depth + 1);
+    }
+  };
+  await assignGlobalOrder(root.basename, 0);
 }

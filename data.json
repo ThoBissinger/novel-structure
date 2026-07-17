@@ -20,5 +20,14 @@
     }
   ],
   "privateTodoFile": "Private-Todos.md",
-  "dailySelections": {}
+  "dailySelections": {},
+  "typeLabels": {
+    "book": "Book",
+    "section": "Section",
+    "chapter": "Chapter",
+    "subchapter": "Subchapter",
+    "scene": "Scene"
+  },
+  "includeTypeInFileName": true,
+  "boardVisibleDepth": "scene"
 }

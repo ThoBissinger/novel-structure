@@ -33,10 +33,26 @@ export function structureFileTitle(
 }
 
 export function uniqueFileName(app: App, folder: string, title: string): string {
+  return uniqueFileNameExcluding(app, folder, title, null);
+}
+
+/**
+ * Same as uniqueFileName(), but a file at `excludePath` doesn't count as a
+ * collision — used when renaming a file to (possibly) its own current name,
+ * so it doesn't get bumped into "Title 2" by colliding with itself.
+ */
+export function uniqueFileNameExcluding(
+  app: App,
+  folder: string,
+  title: string,
+  excludePath: string | null
+): string {
   const base = title.replace(/[\\/:*?"<>|#^\[\]]/g, "").trim() || "Untitled";
   let name = base;
   let counter = 1;
-  while (app.vault.getAbstractFileByPath(`${folder}/${name}.md`)) {
+  while (true) {
+    const existing = app.vault.getAbstractFileByPath(`${folder}/${name}.md`);
+    if (!existing || existing.path === excludePath) break;
     counter++;
     name = `${base} ${counter}`;
   }

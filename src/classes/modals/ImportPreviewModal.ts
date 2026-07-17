@@ -10,6 +10,7 @@ export class ImportPreviewModal extends Modal {
   plugin: NovelStructurePlugin;
   parsed: ParsedImport;
   suggestedTitle: string;
+  importText = true;
 
   constructor(app: App, plugin: NovelStructurePlugin, parsed: ParsedImport, suggestedTitle: string) {
     super(app);
@@ -82,6 +83,11 @@ export class ImportPreviewModal extends Modal {
     });
 
     new Setting(contentEl)
+      .setName("Import text")
+      .setDesc("Off creates structure-only files (titles/metadata, no prose) — useful to set up the skeleton before the draft text exists.")
+      .addToggle((toggle) => toggle.setValue(this.importText).onChange((v) => (this.importText = v)));
+
+    new Setting(contentEl)
       .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
       .addButton((btn) =>
         btn
@@ -95,7 +101,7 @@ export class ImportPreviewModal extends Modal {
               rootFile = await createRootNote(this.app, this.plugin.settings, this.suggestedTitle, "", null);
               new Notice(`Root note "${rootFile.basename}" created automatically.`);
             }
-            await writeStructureTree(this.app, this.plugin.settings, this.parsed, rootFile.basename);
+            await writeStructureTree(this.app, this.plugin.settings, this.parsed, rootFile.basename, this.importText);
           })
       );
   }

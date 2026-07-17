@@ -1,13 +1,15 @@
 import { App, FuzzySuggestModal, TFile } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { HeadingMappingModal } from "./HeadingMappingModal";
+import { HeadingMappingModal, ImportMode } from "./HeadingMappingModal";
 
 export class DocxPickModal extends FuzzySuggestModal<TFile> {
   plugin: NovelStructurePlugin;
+  mode: ImportMode;
 
-  constructor(app: App, plugin: NovelStructurePlugin) {
+  constructor(app: App, plugin: NovelStructurePlugin, mode: ImportMode = "import") {
     super(app);
     this.plugin = plugin;
+    this.mode = mode;
     this.setPlaceholder("Choose a Word file (.docx) from the vault…");
   }
 
@@ -20,6 +22,6 @@ export class DocxPickModal extends FuzzySuggestModal<TFile> {
   }
 
   onChooseItem(item: TFile) {
-    new HeadingMappingModal(this.app, this.plugin, item).open();
+    new HeadingMappingModal(this.app, this.plugin, item, this.mode).open();
   }
 }

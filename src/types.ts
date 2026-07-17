@@ -63,6 +63,7 @@ export interface NovelStructureSettings {
   dailySelections: Record<string, DailySelection>; // date -> selection
   typeLabels: Record<StructureType, string>; // display/filename label per structure type
   includeTypeInFileName: boolean; // prefix new file names with their type label, e.g. "Scene - Title"
+  boardVisibleDepth: StructureType; // deepest level shown as a card grid by default on the novel board; anything deeper needs focusing a card to reveal
 }
 
 export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
@@ -86,10 +87,11 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   dailySelections: {},
   typeLabels: { ...DEFAULT_TYPE_LABELS },
   includeTypeInFileName: true,
+  boardVisibleDepth: "subchapter",
 };
 
 export const VIEW_TYPE_STRUCTURE = "novel-structure-view";
-export const VIEW_TYPE_TODO = "novel-structure-todo-view";
+export const VIEW_TYPE_BOARD = "novel-structure-board-view";
 
 export type Priority = "high" | "medium" | "low";
 
@@ -101,10 +103,18 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
   low: "#8a8a8a",
 };
 
+/** Shape of one entry in a note's frontmatter `todos` array. */
+export interface TodoEntry {
+  id: string;
+  text: string;
+  done: boolean;
+  priority: Priority;
+}
+
+/** A todo resolved with its file context, for display/UI purposes. */
 export interface TodoItem {
   id: string;
-  text: string; // without "- [ ]" and without #prio-tag
-  rawLine: string; // original line, used to relocate it when writing
+  text: string;
   done: boolean;
   priority: Priority;
   source: "scene" | "private";
