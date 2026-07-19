@@ -13,13 +13,11 @@ import { StructureNoteEditor } from "../StructureNoteEditor";
 export class MetadataEditorModal extends Modal {
   plugin: NovelStructurePlugin;
   file: TFile;
-  focusThread?: "conflict" | "motif";
 
-  constructor(app: App, plugin: NovelStructurePlugin, file: TFile, focusThread?: "conflict" | "motif") {
+  constructor(app: App, plugin: NovelStructurePlugin, file: TFile) {
     super(app);
     this.plugin = plugin;
     this.file = file;
-    this.focusThread = focusThread;
     this.modalEl.addClass("novel-metadata-modal");
   }
 
@@ -39,16 +37,7 @@ export class MetadataEditorModal extends Modal {
       this.app.workspace.getLeaf(false).openFile(this.file);
     };
 
-    const form = new StructureNoteEditor(this.app, this.plugin, this.file, () => this.render()).render(contentEl);
-
-    if (this.focusThread) {
-      const target = form.querySelector<HTMLElement>(`[data-thread-kind="${this.focusThread}"]`);
-      if (target) {
-        target.scrollIntoView({ block: "start" });
-        target.addClass("novel-board-flash");
-        setTimeout(() => target.removeClass("novel-board-flash"), 1200);
-      }
-    }
+    new StructureNoteEditor(this.app, this.plugin, this.file, () => this.render()).render(contentEl);
   }
 
   onClose() {

@@ -1,8 +1,21 @@
 .novel-structure-row:hover {
   background-color: var(--background-modifier-hover);
 }
+.novel-structure-row {
+  border-radius: 4px;
+}
 .novel-structure-meta {
   font-size: 0.85em;
+}
+
+/* Indent-guide: a thin left border per nesting level instead of plain
+   margin-left, so it's clear at a glance which rows belong to which
+   parent's subtree (same idea as VS Code's/Obsidian's own file explorer). */
+.novel-structure-children {
+  margin-left: 7px;
+  padding-left: 10px;
+  margin-top: 2px;
+  border-left: 2px solid var(--text-faint, var(--background-modifier-border-hover));
 }
 
 /* ---------------------------------------------------------------------- */
@@ -378,6 +391,13 @@ textarea.novel-board-field-input {
   border-top: 1px dashed var(--background-modifier-border);
 }
 
+.novel-board-field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
 .novel-board-conflict-list {
   display: flex;
   flex-direction: column;
@@ -387,17 +407,20 @@ textarea.novel-board-field-input {
 
 .novel-board-conflict-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
 }
 .novel-board-conflict-row .novel-board-editable-chip {
   flex-shrink: 0;
   max-width: 40%;
-  margin-top: 3px;
 }
-.novel-board-conflict-row .novel-board-field-input {
+.novel-board-conflict-dev-preview {
   flex: 1;
-  font-size: 0.85em;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
 }
 .novel-board-conflict-dev {
   resize: vertical;
@@ -429,6 +452,89 @@ textarea.novel-board-field-input {
 .novel-metadata-modal .modal-content {
   max-height: 82vh;
   overflow-y: auto;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Thread editor modal (Conflict/Motif)                                    */
+/* ---------------------------------------------------------------------- */
+
+.novel-thread-kind-switcher,
+.novel-thread-tab-switcher {
+  margin-bottom: 10px;
+}
+.novel-thread-tab-switcher {
+  margin-top: 4px;
+}
+
+.novel-thread-timeline-group {
+  margin-bottom: 8px;
+}
+.novel-thread-timeline-heading {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.novel-thread-current-scene {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--interactive-accent, #7c3aed);
+  background: var(--background-secondary);
+}
+.novel-thread-current-scene .novel-board-field-label {
+  color: var(--interactive-accent, #7c3aed);
+}
+
+.novel-board-bullet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.novel-board-bullet-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.9em;
+}
+.novel-board-bullet-text {
+  flex: 1;
+  min-width: 0;
+}
+.novel-board-bullet-add-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.novel-thread-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+.novel-thread-pick-card {
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  cursor: pointer;
+}
+.novel-thread-pick-card:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent, #7c3aed);
+}
+.novel-thread-pick-card-title {
+  font-size: 0.9em;
+  font-weight: 600;
+}
+.novel-thread-pick-card-meta {
+  font-size: 0.75em;
+  opacity: 0.6;
+  text-transform: capitalize;
 }
 
 .novel-todo-day-box {
@@ -558,6 +664,39 @@ textarea.novel-board-field-input {
   max-width: 130px;
 }
 
+.novel-character-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.novel-character-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.novel-character-row .novel-structure-info-link {
+  flex-shrink: 0;
+}
+.novel-character-mentions {
+  flex: 1;
+  margin: 0;
+}
+.novel-character-role-group {
+  flex-shrink: 0;
+}
+.novel-character-role-group .novel-structure-inline-btn {
+  font-size: 0.72em;
+  padding: 1px 6px;
+}
+
+.novel-character-divider {
+  margin: 6px 0;
+  border-top: 1px solid var(--interactive-accent, #7c3aed);
+  opacity: 0.4;
+}
+
 .novel-todo-remove-btn {
   display: inline-flex;
   cursor: pointer;
@@ -625,10 +764,12 @@ textarea.novel-board-field-input {
 }
 
 .novel-structure-inline-actions {
+  margin: 0 0 12px 0;
+}
+.novel-structure-inline-btn-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 12px 0;
 }
 .novel-structure-inline-btn {
   font-size: 0.8em;
@@ -641,6 +782,74 @@ textarea.novel-board-field-input {
 }
 .novel-structure-inline-btn:hover {
   background: var(--background-modifier-hover);
+}
+
+.novel-structure-mode-group {
+  display: flex;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.novel-structure-mode-group .novel-structure-mode-btn {
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid var(--background-modifier-border);
+}
+.novel-structure-mode-group .novel-structure-mode-btn:last-child {
+  border-right: none;
+}
+.novel-structure-mode-btn.is-active {
+  /* Explicit fallbacks: if the active theme doesn't define --text-on-accent,
+     `color` would otherwise fall back to the inherited text color (light
+     gray in dark mode) sitting on the accent background — bad contrast.
+     !important guards against Obsidian's own button color rules winning
+     the cascade on the plain <button> elements used in the inline bar. */
+  background: var(--interactive-accent, #7c3aed) !important;
+  color: var(--text-on-accent, #ffffff) !important;
+}
+.novel-structure-mode-btn.is-active:hover {
+  background: var(--interactive-accent-hover, var(--interactive-accent, #7c3aed)) !important;
+}
+
+/* Header (view action) variant of the same active-state highlight. */
+.view-action.novel-structure-mode-btn.is-active {
+  color: var(--interactive-accent, #7c3aed) !important;
+  opacity: 1;
+}
+
+.novel-structure-info-block {
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 0.82em;
+}
+.novel-structure-info-block.is-visible {
+  display: flex;
+}
+.novel-structure-info-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.novel-structure-info-label {
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+.novel-structure-info-link {
+  color: var(--link-color, var(--text-accent));
+  text-decoration: none;
+}
+.novel-structure-info-link:hover {
+  text-decoration: underline;
 }
 
 @keyframes novel-board-flash-anim {

@@ -2,18 +2,13 @@ import { App, TFile } from "obsidian";
 import { NovelStructureSettings, STRUCTURE_TYPES, StructureType } from "../types";
 
 // ---------------------------------------------------------------------------
-// Helpers around vault files: recognizing structure/character files,
-// generating unique file names, and parsing wikilink strings.
+// Helpers around vault files: recognizing structure files, generating
+// unique file names, and parsing wikilink strings.
 // ---------------------------------------------------------------------------
 
 export function isStructureFile(app: App, file: TFile, settings: NovelStructureSettings): boolean {
   const fm = app.metadataCache.getFileCache(file)?.frontmatter;
   return !!fm && STRUCTURE_TYPES.includes(fm.type) && file.path.startsWith(settings.structureFolder);
-}
-
-export function isCharacterFile(app: App, file: TFile, settings: NovelStructureSettings): boolean {
-  const fm = app.metadataCache.getFileCache(file)?.frontmatter;
-  return !!fm && fm.type === "character" && file.path.startsWith(settings.structureFolder);
 }
 
 /**

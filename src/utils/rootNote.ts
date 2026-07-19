@@ -72,7 +72,6 @@ export async function createRootNote(
     `author: ${author ? `"${author.replace(/"/g, '\\"')}"` : ""}`,
     `tags: []`,
     `summary: ""`,
-    `categories: []`,
     `status: draft`,
     `target_word_count: ${targetWordCount ?? ""}`,
     `total_word_count: 0`,

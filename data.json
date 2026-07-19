@@ -29,5 +29,13 @@
     "scene": "Scene"
   },
   "includeTypeInFileName": true,
-  "boardVisibleDepth": "scene"
+  "boardVisibleDepth": "scene",
+  "defaultFrontmatterDisplay": "hidden",
+  "structureViewShowTypeLabels": true,
+  "characterRoles": {
+    "06_MainNotes/Galinka Ehrenfest.md": "main",
+    "01_RoughNotes/Georgia O'Keeffe.md": "side",
+    "01_RoughNotes/Edna Teddy Bryner-Schwab.md": "side",
+    "01_RoughNotes/Arthur Schwab.md": "side"
+  }
 }

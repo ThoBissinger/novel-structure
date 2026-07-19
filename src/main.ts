@@ -1,26 +1,88 @@
-import { MarkdownView, Plugin, TFile, debounce, setIcon } from "obsidian";
-import { DEFAULT_SETTINGS, NovelStructureSettings, VIEW_TYPE_BOARD, VIEW_TYPE_STRUCTURE } from "./types";
-import { isStructureFile } from "./utils/files";
+import { MarkdownView, Notice, Plugin, TFile, debounce } from "obsidian";
+import { DEFAULT_SETTINGS, FrontmatterDisplayMode, NovelStructureSettings, VIEW_TYPE_BOARD, VIEW_TYPE_STRUCTURE } from "./types";
+import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
-import { CharacterSelectModal } from "./classes/modals/CharacterSelectModal";
+import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
 import { DailySelectionModal } from "./classes/modals/DailySelectionModal";
 import { DocxPickModal } from "./classes/modals/DocxPickModal";
 import { MetadataEditorModal } from "./classes/modals/MetadataEditorModal";
 import { RootNoteModal } from "./classes/modals/RootNoteModal";
 import { StatusModal } from "./classes/modals/StatusModal";
+import { ThreadEditorModal } from "./classes/modals/ThreadEditorModal";
 import { TodoCenterModal } from "./classes/modals/TodoCenterModal";
 import { NovelStructureSettingTab } from "./classes/settings/NovelStructureSettingTab";
 import { NovelBoardView } from "./classes/views/NovelBoardView";
 import { StructureView } from "./classes/views/StructureView";
 import { splitBody } from "./utils/noteBody";
 import { findRootNote, updateStructureMetadata } from "./utils/rootNote";
+import { isThreadFile, refreshThreadTrackerQuery, regenerateThreadsBase, ThreadKind } from "./utils/threads";
 import { todayDate, tomorrowDate } from "./utils/todos";
+
+// Obsidian's internal class name for the Properties/frontmatter widget isn't
+// officially documented and can differ by version/mode — these are tried in
+// order, first match wins. If none match, visibility falls back to a CSS
+// class (see styles.css) and the inline button bar is inserted at the top
+// of the content instead of right after the properties block.
+const PROPERTIES_SELECTORS = [
+  ".metadata-container",
+  ".metadata-properties-heading",
+  ".frontmatter-container",
+  ".frontmatter",
+  ".cm-frontmatter",
+];
+
+interface StructureViewActions {
+  frontmatterButtons: Record<FrontmatterDisplayMode, HTMLElement>;
+  editDataBtn: HTMLElement;
+  conflictBtn: HTMLElement;
+}
+
+// A direct 3-way selector, not a cycle — each mode is independently
+// clickable/selectable (both as header icons and as inline buttons) so you
+// can jump straight to any of the three instead of stepping through them.
+const FRONTMATTER_MODES: FrontmatterDisplayMode[] = ["hidden", "structure", "visible"];
+const FRONTMATTER_MODE_LABEL: Record<FrontmatterDisplayMode, string> = {
+  hidden: "Hide",
+  structure: "Structure",
+  visible: "Full",
+};
+const FRONTMATTER_MODE_TOOLTIP: Record<FrontmatterDisplayMode, string> = {
+  hidden: "Hide properties",
+  structure: "Show structure info only",
+  visible: "Show full properties",
+};
+const FRONTMATTER_MODE_ICON: Record<FrontmatterDisplayMode, string> = {
+  hidden: "eye-off",
+  structure: "list",
+  visible: "eye",
+};
 
 export default class NovelStructurePlugin extends Plugin {
   settings!: NovelStructureSettings;
 
+  // Plain Maps (not WeakMaps) so onunload() can iterate and remove
+  // everything we added to view headers/content — Obsidian doesn't clean
+  // those up automatically when a plugin is disabled, so without this,
+  // disabling and re-enabling leaves duplicate icons/bars behind.
+  private structureActions = new Map<MarkdownView, StructureViewActions>();
+  private threadActions = new Map<MarkdownView, HTMLElement>();
+  private inlineBars = new Map<MarkdownView, HTMLElement>();
+  private frontmatterMode = new WeakMap<MarkdownView, FrontmatterDisplayMode>(); // just a flag, no DOM ref — fine as a WeakMap
+
   async onload() {
     await this.loadSettings();
+
+    // Obsidian fires vault "create"/"modify" and metadataCache "changed"
+    // events for every *pre-existing* file while it's still populating/
+    // indexing the vault at startup — not just for genuinely new files or
+    // real edits. `workspace.layoutReady` is false for that whole stretch,
+    // so every handler below (here and in the views) checks it first and
+    // does nothing until the workspace has actually finished restoring.
+    // Without this, a large vault turns into thousands of full
+    // structure-tree rescans (updateStructureMetadata does a full
+    // vault.getFiles() scan + a recursive walk) competing with Obsidian's
+    // own indexer on the same thread — which can make startup hang, and
+    // can slow down indexing itself even once it does get through.
 
     // Auto-update word/page count when a structure file is edited (debounced
     // so the frontmatter isn't rewritten on every keystroke).
@@ -32,6 +94,7 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
+        if (!this.app.workspace.layoutReady) return;
         if (file instanceof TFile && file.extension === "md" && isStructureFile(this.app, file, this.settings)) {
           debouncedUpdate(file);
         }
@@ -50,17 +113,6 @@ export default class NovelStructurePlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "novel-structure-select-characters",
-      name: "Select characters (focus / side / mentioned)",
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!file || !isStructureFile(this.app, file, this.settings)) return false;
-        if (!checking) new CharacterSelectModal(this.app, this, file).open();
-        return true;
-      },
-    });
-
-    this.addCommand({
       id: "novel-structure-edit-metadata",
       name: "Edit metadata (storyboard editor)",
       checkCallback: (checking) => {
@@ -71,71 +123,56 @@ export default class NovelStructurePlugin extends Plugin {
       },
     });
 
-    // Three icons in a structure note's editor header: toggle the raw
-    // frontmatter/properties display (hidden by default — the editor below
-    // is meant to replace looking at it directly), and quick access to the
-    // metadata editor / straight to its conflicts section.
-    interface StructureViewActions {
-      frontmatterBtn: HTMLElement;
-      editDataBtn: HTMLElement;
-      conflictBtn: HTMLElement;
-    }
-    const structureActions = new WeakMap<MarkdownView, StructureViewActions>();
-    const frontmatterHidden = new WeakMap<MarkdownView, boolean>();
-    const inlineFrontmatterButtons = new WeakMap<MarkdownView, HTMLButtonElement>();
+    this.addCommand({
+      id: "novel-structure-open-thread-editor",
+      name: "Open thread editor (conflicts/motifs)",
+      callback: () => {
+        const active = this.app.workspace.getActiveFile();
+        const sceneContext = active && isStructureFile(this.app, active, this.settings) ? active : undefined;
+        new ThreadEditorModal(this.app, this, "conflict", null, sceneContext).open();
+      },
+    });
 
-    const applyFrontmatterVisibility = (view: MarkdownView) => {
-      const hidden = frontmatterHidden.get(view) ?? true;
-      view.contentEl.toggleClass("novel-structure-hide-frontmatter", hidden);
-      const actions = structureActions.get(view);
-      if (actions) {
-        setIcon(actions.frontmatterBtn, hidden ? "eye-off" : "eye");
-        actions.frontmatterBtn.setAttribute("aria-label", hidden ? "Show frontmatter" : "Hide frontmatter");
-      }
-      const inlineBtn = inlineFrontmatterButtons.get(view);
-      if (inlineBtn) inlineBtn.setText(hidden ? "Show frontmatter" : "Hide frontmatter");
-    };
+    this.addCommand({
+      id: "novel-structure-refresh-thread-query",
+      name: "Refresh thread tracker query",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !isThreadFile(this.app, file, this.settings)) return false;
+        if (!checking) {
+          refreshThreadTrackerQuery(this.app, this.settings, file).then(() => new Notice("Tracker query refreshed."));
+        }
+        return true;
+      },
+    });
 
-    const toggleFrontmatterFor = (view: MarkdownView) => {
-      frontmatterHidden.set(view, !(frontmatterHidden.get(view) ?? true));
-      applyFrontmatterVisibility(view);
-    };
+    this.addCommand({
+      id: "novel-structure-regenerate-threads-base",
+      name: "Regenerate Threads base",
+      callback: () => {
+        regenerateThreadsBase(this.app, this.settings).then(() => new Notice("Threads.base regenerated."));
+      },
+    });
 
-    const refreshStructureActions = (view: MarkdownView | null) => {
-      if (!view) return;
-      const file = view.file;
-      const shouldShow = !!file && isStructureFile(this.app, file, this.settings);
-      const existing = structureActions.get(view);
+    this.addCommand({
+      id: "novel-structure-open-character-overview",
+      name: "Open character overview",
+      callback: () => new CharacterOverviewModal(this.app, this).open(),
+    });
 
-      if (shouldShow && !existing) {
-        if (!frontmatterHidden.has(view)) frontmatterHidden.set(view, true); // hidden by default
-        const frontmatterBtn = view.addAction("eye-off", "Show frontmatter", () => toggleFrontmatterFor(view));
-        const editDataBtn = view.addAction("file-cog", "Edit data", () => {
-          if (view.file) new MetadataEditorModal(this.app, this, view.file).open();
-        });
-        const conflictBtn = view.addAction("swords", "Conflict editor", () => {
-          if (view.file) new MetadataEditorModal(this.app, this, view.file, "conflict").open();
-        });
-        structureActions.set(view, { frontmatterBtn, editDataBtn, conflictBtn });
-        applyFrontmatterVisibility(view);
-      } else if (!shouldShow && existing) {
-        existing.frontmatterBtn.remove();
-        existing.editDataBtn.remove();
-        existing.conflictBtn.remove();
-        structureActions.delete(view);
-        view.contentEl.removeClass("novel-structure-hide-frontmatter");
-      } else if (shouldShow && existing) {
-        applyFrontmatterVisibility(view); // switched files within the same pane — keep the icon/state consistent
-      }
-    };
+    // Header icons (view actions) + an inline button bar right next to
+    // wherever Obsidian actually rendered the properties block (see
+    // insertInlineBar below) — two independent, synced entry points to the
+    // same toggle/editor actions, in case one placement doesn't render the
+    // way a given Obsidian version/mode expects.
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
-        if (leaf?.view instanceof MarkdownView) refreshStructureActions(leaf.view);
+        if (leaf?.view instanceof MarkdownView) this.refreshViewActions(leaf.view);
       })
     );
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
-        refreshStructureActions(this.app.workspace.getActiveViewOfType(MarkdownView));
+        this.refreshViewActions(this.app.workspace.getActiveViewOfType(MarkdownView));
       })
     );
     // Both events above only fire on *future* switches — if a structure note
@@ -144,43 +181,20 @@ export default class NovelStructurePlugin extends Plugin {
     // now, for whatever's already active (once the workspace has finished
     // restoring its layout, so the active view actually exists yet).
     this.app.workspace.onLayoutReady(() => {
-      refreshStructureActions(this.app.workspace.getActiveViewOfType(MarkdownView));
+      this.refreshStructureActions(this.app.workspace.getActiveViewOfType(MarkdownView));
     });
-
-    // Same three actions, but rendered inline at the very top of the note's
-    // own content (Reading View / Live Preview) instead of the view header —
-    // this is the standard, well-supported way to put interactive UI inside
-    // rendered markdown (Dataview, Tasks, Buttons etc. all do this via the
-    // same API); it doesn't touch the file's actual text.
-    const insertedInlineBarFor = new Set<string>();
-    this.registerMarkdownPostProcessor((el, ctx) => {
-      const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-      if (!(file instanceof TFile) || !isStructureFile(this.app, file, this.settings)) return;
-      if (insertedInlineBarFor.has(ctx.docId)) return;
-      insertedInlineBarFor.add(ctx.docId);
-
-      const bar = createDiv({ cls: "novel-structure-inline-actions" });
-
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      const hidden = (view && frontmatterHidden.get(view)) ?? true;
-      const frontmatterBtn = bar.createEl("button", {
-        text: hidden ? "Show frontmatter" : "Hide frontmatter",
-        cls: "novel-structure-inline-btn",
-      });
-      frontmatterBtn.onclick = () => {
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (activeView) toggleFrontmatterFor(activeView);
-      };
-      if (view) inlineFrontmatterButtons.set(view, frontmatterBtn as HTMLButtonElement);
-
-      const editDataBtn = bar.createEl("button", { text: "Edit data", cls: "novel-structure-inline-btn" });
-      editDataBtn.onclick = () => new MetadataEditorModal(this.app, this, file).open();
-
-      const conflictBtn = bar.createEl("button", { text: "Conflict editor", cls: "novel-structure-inline-btn" });
-      conflictBtn.onclick = () => new MetadataEditorModal(this.app, this, file, "conflict").open();
-
-      el.insertAdjacentElement("beforebegin", bar);
-    });
+    // Keep the "structure info" block (parent/subsections/previous/next)
+    // fresh when those fields change — e.g. updateStructureMetadata
+    // recomputing them after an import — without needing to reopen the file.
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (file) => {
+        if (!this.app.workspace.layoutReady) return;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view && view.file?.path === file.path && this.structureActions.has(view)) {
+          this.applyFrontmatterVisibility(view);
+        }
+      })
+    );
 
     // Right-click inside a structure note's editor, or right-click the file
     // itself (explorer/tab) — another direct path to the metadata editor.
@@ -270,6 +284,7 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.registerEvent(
       this.app.vault.on("create", (file) => {
+        if (!this.app.workspace.layoutReady) return;
         if (file instanceof TFile && file.extension === "md") {
           updateStructureMetadata(this.app, this.settings);
         }
@@ -277,6 +292,7 @@ export default class NovelStructurePlugin extends Plugin {
     );
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
+        if (!this.app.workspace.layoutReady) return;
         if (file instanceof TFile && file.extension === "md") {
           updateStructureMetadata(this.app, this.settings);
         }
@@ -286,8 +302,225 @@ export default class NovelStructurePlugin extends Plugin {
     this.addRibbonIcon("layout-list", "Open novel structure", () => this.activateStructureView());
     this.addRibbonIcon("list-checks", "Open todo center", () => new TodoCenterModal(this.app, this).open());
     this.addRibbonIcon("layout-grid", "Open novel board", () => this.activateBoardView());
+    this.addRibbonIcon("users", "Open character overview", () => new CharacterOverviewModal(this.app, this).open());
 
     this.addSettingTab(new NovelStructureSettingTab(this.app, this));
+  }
+
+  onunload() {
+    // Obsidian doesn't auto-remove view.addAction() icons or DOM nodes a
+    // plugin inserted into rendered content when the plugin unloads — left
+    // alone, disabling/re-enabling (or a hot-reload) leaves stale icons/bars
+    // behind, and the next onload() adds a second set next to them.
+    this.structureActions.forEach((actions, view) => {
+      Object.values(actions.frontmatterButtons).forEach((btn) => btn.remove());
+      actions.editDataBtn.remove();
+      actions.conflictBtn.remove();
+      view.contentEl.removeClass("novel-structure-hide-frontmatter");
+      const anchor = this.findPropertiesAnchor(view);
+      if (anchor) anchor.style.display = "";
+    });
+    this.structureActions.clear();
+
+    this.threadActions.forEach((btn) => btn.remove());
+    this.threadActions.clear();
+
+    this.inlineBars.forEach((bar) => bar.remove());
+    this.inlineBars.clear();
+  }
+
+  /** Finds whatever element actually renders the Properties/frontmatter
+   * widget for this view, trying several candidate selectors since
+   * Obsidian's internal class name for it isn't officially documented. */
+  private findPropertiesAnchor(view: MarkdownView): HTMLElement | null {
+    for (const selector of PROPERTIES_SELECTORS) {
+      const el = view.contentEl.querySelector<HTMLElement>(selector);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  private applyFrontmatterVisibility(view: MarkdownView) {
+    const mode = this.frontmatterMode.get(view) ?? this.settings.defaultFrontmatterDisplay;
+
+    // Primary mechanism: hide the actual element directly (wins over any
+    // of Obsidian's own styling, no CSS specificity guesswork). Falls back
+    // to a CSS class (see styles.css) if the anchor couldn't be found.
+    view.contentEl.toggleClass("novel-structure-hide-frontmatter", mode !== "visible");
+    const anchor = this.findPropertiesAnchor(view);
+    if (anchor) anchor.style.display = mode === "visible" ? "" : "none";
+
+    const actions = this.structureActions.get(view);
+    if (actions) {
+      FRONTMATTER_MODES.forEach((m) => actions.frontmatterButtons[m].toggleClass("is-active", m === mode));
+    }
+
+    const bar = this.inlineBars.get(view);
+    if (bar) {
+      bar.querySelectorAll<HTMLElement>(".novel-structure-mode-btn").forEach((btn) => {
+        btn.toggleClass("is-active", btn.getAttr("data-mode") === mode);
+      });
+
+      const infoBlock = bar.querySelector<HTMLElement>(".novel-structure-info-block");
+      if (infoBlock) {
+        infoBlock.toggleClass("is-visible", mode === "structure");
+        if (mode === "structure" && view.file) this.renderStructureInfoInto(infoBlock, view.file);
+      }
+    }
+  }
+
+  private setFrontmatterMode(view: MarkdownView, mode: FrontmatterDisplayMode) {
+    this.frontmatterMode.set(view, mode);
+    this.applyFrontmatterVisibility(view);
+  }
+
+  /** Renders the note's structural links only — parent, previous, next,
+   * subsections — as clickable entries, for "structure info only" mode. */
+  private renderStructureInfoInto(container: HTMLElement, file: TFile) {
+    container.empty();
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+
+    const addRow = (label: string, links: (string | undefined)[]) => {
+      const values = links.filter((l): l is string => !!l);
+      if (values.length === 0) return;
+      const row = container.createDiv({ cls: "novel-structure-info-row" });
+      row.createSpan({ text: label, cls: "novel-structure-info-label" });
+      values.forEach((link) => {
+        const basename = extractLinkBasename(link);
+        if (!basename) return;
+        const a = row.createEl("a", { text: basename, cls: "novel-structure-info-link", href: "#" });
+        a.onclick = (evt) => {
+          evt.preventDefault();
+          const target = this.app.metadataCache.getFirstLinkpathDest(basename, file.path);
+          if (target) this.app.workspace.getLeaf(false).openFile(target);
+        };
+      });
+    };
+
+    addRow("Parent", [fm.parent]);
+    addRow("Previous", [fm.previous]);
+    addRow("Next", [fm.next]);
+    addRow("Subsections", fm.subsections ?? []);
+    if (!container.hasChildNodes()) container.setText("No structural links yet.");
+  }
+
+  /** Inserts (or moves, if the file in this pane changed) the inline button
+   * bar right *before* the properties element if one was found (so its
+   * position stays fixed regardless of whether properties are expanded/
+   * hidden), or at the top of the content otherwise. */
+  private insertInlineBar(view: MarkdownView, file: TFile) {
+    this.inlineBars.get(view)?.remove();
+
+    const bar = createDiv({ cls: "novel-structure-inline-actions" });
+    const buttonRow = bar.createDiv({ cls: "novel-structure-inline-btn-row" });
+
+    const modeGroup = buttonRow.createDiv({ cls: "novel-structure-mode-group" });
+    FRONTMATTER_MODES.forEach((mode) => {
+      const btn = modeGroup.createEl("button", {
+        text: FRONTMATTER_MODE_LABEL[mode],
+        cls: "novel-structure-inline-btn novel-structure-mode-btn",
+        attr: { "data-mode": mode, title: FRONTMATTER_MODE_TOOLTIP[mode] },
+      });
+      btn.onclick = () => this.setFrontmatterMode(view, mode);
+    });
+
+    const editDataBtn = buttonRow.createEl("button", { text: "Edit data", cls: "novel-structure-inline-btn" });
+    editDataBtn.onclick = () => {
+      if (view.file) new MetadataEditorModal(this.app, this, view.file).open();
+    };
+
+    const conflictBtn = buttonRow.createEl("button", { text: "Threads", cls: "novel-structure-inline-btn" });
+    conflictBtn.onclick = () => {
+      if (view.file) new ThreadEditorModal(this.app, this, "conflict", null, view.file).open();
+    };
+
+    bar.createDiv({ cls: "novel-structure-info-block" });
+
+    const anchor = this.findPropertiesAnchor(view);
+    if (anchor) {
+      anchor.insertAdjacentElement("beforebegin", bar);
+    } else {
+      const contentContainer = view.contentEl.querySelector(".markdown-source-view, .markdown-reading-view") ?? view.contentEl;
+      contentContainer.prepend(bar);
+    }
+    this.inlineBars.set(view, bar);
+  }
+
+  /** Runs both action-refreshers together — a view is either a structure
+   * note, a thread note, or neither, so at most one of the two ever adds
+   * anything, but both need to run to also *remove* their buttons when the
+   * view stops being their kind of file. */
+  private refreshViewActions(view: MarkdownView | null) {
+    this.refreshStructureActions(view);
+    this.refreshThreadActions(view);
+  }
+
+  private refreshStructureActions(view: MarkdownView | null) {
+    if (!view) return;
+    const file = view.file;
+    const shouldShow = !!file && isStructureFile(this.app, file, this.settings);
+    const existing = this.structureActions.get(view);
+
+    if (shouldShow && !existing) {
+      const frontmatterButtons = {} as Record<FrontmatterDisplayMode, HTMLElement>;
+      FRONTMATTER_MODES.forEach((mode) => {
+        const btn = view.addAction(FRONTMATTER_MODE_ICON[mode], FRONTMATTER_MODE_TOOLTIP[mode], () =>
+          this.setFrontmatterMode(view, mode)
+        );
+        btn.addClass("novel-structure-mode-btn");
+        btn.setAttribute("data-mode", mode);
+        frontmatterButtons[mode] = btn;
+      });
+      const editDataBtn = view.addAction("file-cog", "Edit data", () => {
+        if (view.file) new MetadataEditorModal(this.app, this, view.file).open();
+      });
+      const conflictBtn = view.addAction("git-branch", "Threads", () => {
+        if (view.file) new ThreadEditorModal(this.app, this, "conflict", null, view.file).open();
+      });
+      this.structureActions.set(view, { frontmatterButtons, editDataBtn, conflictBtn });
+      this.insertInlineBar(view, file!);
+      this.applyFrontmatterVisibility(view);
+    } else if (!shouldShow && existing) {
+      Object.values(existing.frontmatterButtons).forEach((btn) => btn.remove());
+      existing.editDataBtn.remove();
+      existing.conflictBtn.remove();
+      this.structureActions.delete(view);
+      this.inlineBars.get(view)?.remove();
+      this.inlineBars.delete(view);
+      view.contentEl.removeClass("novel-structure-hide-frontmatter");
+      const anchor = this.findPropertiesAnchor(view);
+      if (anchor) anchor.style.display = "";
+    } else if (shouldShow && existing) {
+      // Either the same file re-rendering, or a different structure file
+      // opened in the same pane — move the inline bar to the fresh content
+      // and keep the header icon/state consistent either way.
+      this.insertInlineBar(view, file!);
+      this.applyFrontmatterVisibility(view);
+    }
+  }
+
+  /** A thread note (Conflict/Motif) opened directly in the normal editor
+   * gets its own single header action to jump into the comfier
+   * `ThreadEditorModal` edit view, instead of only being reachable by
+   * searching for it from "Open thread editor". */
+  private refreshThreadActions(view: MarkdownView | null) {
+    if (!view) return;
+    const file = view.file;
+    const kind: ThreadKind | null =
+      file && isThreadFile(this.app, file, this.settings)
+        ? ((this.app.metadataCache.getFileCache(file)?.frontmatter?.type as ThreadKind) ?? null)
+        : null;
+    const existing = this.threadActions.get(view);
+
+    if (kind && !existing) {
+      const btn = view.addAction("git-branch", "Edit thread", () => {
+        if (view.file) new ThreadEditorModal(this.app, this, kind, view.file).open();
+      });
+      this.threadActions.set(view, btn);
+    } else if (!kind && existing) {
+      existing.remove();
+      this.threadActions.delete(view);
+    }
   }
 
   async activateStructureView() {
@@ -327,6 +560,14 @@ export default class NovelStructurePlugin extends Plugin {
 
     const words = countWords(prose);
     const pages = calculatePages(words, this.settings.wordsPerPage);
+
+    // Diff-check before writing: processFrontMatter always rewrites the file
+    // (which fires its own "modify" event), so writing unconditionally here
+    // would re-trigger this same debounced handler on every call forever,
+    // even once the word count has stabilized. Same pattern as
+    // updateStructureMetadata() in rootNote.ts, for the same reason.
+    const currentFm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    if (currentFm?.word_count === words && currentFm?.page_count === pages) return;
 
     await this.app.fileManager.processFrontMatter(file, (fm) => {
       fm.word_count = words;

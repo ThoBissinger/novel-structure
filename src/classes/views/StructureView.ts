@@ -1,6 +1,6 @@
-import { ItemView, Setting, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Setting, TFile, WorkspaceLeaf, debounce } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { STATUS_COLORS, StatusType, VIEW_TYPE_STRUCTURE } from "../../types";
+import { STATUS_COLORS, StatusType, StructureType, VIEW_TYPE_STRUCTURE } from "../../types";
 import { extractLinkBasename, isStructureFile } from "../../utils/files";
 import { findAllRootNotes } from "../../utils/rootNote";
 import { RootNoteModal } from "../modals/RootNoteModal";
@@ -28,9 +28,17 @@ export class StructureView extends ItemView {
   }
 
   async onOpen() {
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.render()));
-    this.registerEvent(this.app.vault.on("create", () => this.render()));
-    this.registerEvent(this.app.vault.on("delete", () => this.render()));
+    // Debounced, and a no-op until the workspace is done restoring — if
+    // this view was open last session, Obsidian reopens it while the vault
+    // is still populating/indexing, and "create"/"changed" fire once per
+    // *pre-existing* file during that, not just for new ones or real edits.
+    const debouncedRender = debounce(() => this.render(), 400, true);
+    const guardedRender = () => {
+      if (this.app.workspace.layoutReady) debouncedRender();
+    };
+    this.registerEvent(this.app.metadataCache.on("changed", guardedRender));
+    this.registerEvent(this.app.vault.on("create", guardedRender));
+    this.registerEvent(this.app.vault.on("delete", guardedRender));
     this.render();
   }
 
@@ -111,16 +119,21 @@ export class StructureView extends ItemView {
     const treeBox = container.createEl("div", { cls: "novel-structure-list" });
     const attached = new Set<string>();
 
-    const renderChildrenOf = (basename: string, depth: number) => {
+    // Real nested containers (indent-guide left border per level) instead of
+    // flat rows with margin-left — much easier to tell which rows belong to
+    // which parent's subtree at a glance once a section has many chapters/scenes.
+    const renderChildrenOf = (parentEl: HTMLElement, basename: string, depth: number) => {
       if (depth > MAX_TREE_DEPTH) return;
       const children = childrenByParent.get(basename) ?? [];
+      if (children.length === 0) return;
+      const childrenBox = parentEl.createEl("div", { cls: "novel-structure-children" });
       children.forEach((f) => {
         attached.add(f.path);
-        this.renderRow(treeBox, f, depth);
-        renderChildrenOf(f.basename, depth + 1);
+        this.renderRow(childrenBox, f);
+        renderChildrenOf(childrenBox, f.basename, depth + 1);
       });
     };
-    renderChildrenOf(root.basename, 0);
+    renderChildrenOf(treeBox, root.basename, 0);
 
     if (allFiles.length === 0) {
       const hint = container.createEl("p", { text: "No sections/chapters/scenes yet." });
@@ -146,10 +159,10 @@ export class StructureView extends ItemView {
     });
     hint.style.opacity = "0.7";
     const box = container.createEl("div");
-    orphans.forEach((f) => this.renderRow(box, f, 0));
+    orphans.forEach((f) => this.renderRow(box, f));
   }
 
-  renderRow(parent: HTMLElement, file: TFile, depth: number) {
+  renderRow(parent: HTMLElement, file: TFile) {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
 
     const row = parent.createEl("div", { cls: "novel-structure-row" });
@@ -158,7 +171,6 @@ export class StructureView extends ItemView {
     row.style.gap = "6px";
     row.style.padding = "2px 0";
     row.style.cursor = "pointer";
-    row.style.marginLeft = `${depth * 14}px`;
 
     const dot = row.createEl("span");
     dot.style.width = "8px";
@@ -167,7 +179,14 @@ export class StructureView extends ItemView {
     dot.style.flexShrink = "0";
     dot.style.backgroundColor = STATUS_COLORS[(fm?.status as StatusType) ?? "draft"];
 
-    row.createEl("span", { text: fm?.title || file.basename });
+    const title = fm?.title || file.basename;
+    const type = fm?.type as StructureType | undefined;
+    const label =
+      this.plugin.settings.structureViewShowTypeLabels && type
+        ? this.plugin.settings.typeLabels[type] ?? type
+        : null;
+    row.createEl("span", { text: label ? `${label} - ${title}` : title });
+
     const metaSpan = row.createEl("span", {
       text: ` (${fm?.word_count ?? 0}w / ${fm?.page_count ?? 0}p)`,
       cls: "novel-structure-meta",

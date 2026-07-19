@@ -45,17 +45,30 @@ export class NovelBoardView extends ItemView {
   }
 
   async onOpen() {
+    // Debounced, and a no-op until the workspace is done restoring — if
+    // this view was open last session, Obsidian reopens it while the vault
+    // is still populating/indexing, and "create"/"changed" fire once per
+    // *pre-existing* file during that, not just for new ones or real edits.
     const debouncedRender = debounce(() => this.render(), 400, true);
     this.registerEvent(
       this.app.metadataCache.on("changed", () => {
+        if (!this.app.workspace.layoutReady) return;
         // Don't yank the DOM out from under an in-progress edit (would drop
         // cursor position/focus in whatever field the user is typing in).
         if (this.containerHasFocus()) return;
         debouncedRender();
       })
     );
-    this.registerEvent(this.app.vault.on("create", () => this.render()));
-    this.registerEvent(this.app.vault.on("delete", () => this.render()));
+    this.registerEvent(
+      this.app.vault.on("create", () => {
+        if (this.app.workspace.layoutReady) debouncedRender();
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", () => {
+        if (this.app.workspace.layoutReady) debouncedRender();
+      })
+    );
     this.render();
   }
 

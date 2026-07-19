@@ -187,7 +187,7 @@ export async function applyUpdateImport(
       await app.vault.process(entry.existingFile, (data) => {
         const match = data.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
         const fm = (match ? parseYaml(match[1]) : null) ?? {};
-        const { prose: oldProse, notes } = splitBody(match ? match[2] : "");
+        const { prose: oldProse, tail } = splitBody(match ? match[2] : "");
 
         const newProse = textMode === "import" ? entry.contentText : textMode === "keep" ? oldProse : "";
         // Word count tracks the real prose when there is any; when the body ends up
@@ -204,7 +204,7 @@ export async function applyUpdateImport(
         fm.parent = entry.parentBasename ? `[[${entry.parentBasename}]]` : fm.parent ?? "";
         fm.order = entry.order;
         backfillObsidianOnlyFields(fm);
-        return `---\n${stringifyYaml(fm)}---\n${joinBody(newProse, notes)}`;
+        return `---\n${stringifyYaml(fm)}---\n${joinBody(newProse, tail)}`;
       });
       updated++;
     } else {

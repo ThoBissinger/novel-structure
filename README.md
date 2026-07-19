@@ -51,13 +51,10 @@ focus_character: ""            # single [[link]] or "" — links straight to any
 side_characters: []            # [[links]] present in the scene
 characters_mentioned: []       # [[links]] mentioned but not present
 locations: []                  # [[links]]
-categories: []                 # [[links]]
-motifs: []                     # [[links]] into Threads/ (see below)
-motif_developments: []         # motifs[i] pairs with motif_developments[i] by index
+motifs: []                     # [[links]] into Threads/ (see below) — development text lives in the body, not here
 year:                          # plain number, optional
 month:                         # plain number 1–12, optional
-conflicts: []                  # [[links]] into Threads/ (see below)
-conflict_developments: []      # conflicts[i] pairs with conflict_developments[i] by index
+conflicts: []                  # [[links]] into Threads/ (see below) — development text lives in the body, not here
 todos: []                      # [{id, text, done, priority}] — see "Todos" below
 status: draft                  # draft | todo | in_progress | review | revision | done
 revision:
@@ -81,7 +78,6 @@ title: "..."
 author: ""
 tags: []
 summary: ""
-categories: []
 status: draft
 target_word_count:
 total_word_count: 0    # auto: sum over all structure notes
@@ -97,59 +93,140 @@ subsections: []         # auto: this novel's top-level sections
   `order`, `global_order`.
 - **Yours to edit freely**: everything else — `tags`, `summary`,
   `focus_character`, `side_characters`, `characters_mentioned`, `locations`,
-  `categories`, `motifs`/`motif_developments`, `conflicts`/
-  `conflict_developments`, `todos`, `year`/`month`, `status`, `revision`,
+  `motifs`, `conflicts`, `todos`, `year`/`month`, `status`, `revision`,
   `planned_length`. Also `parent`, if you want to re-parent a note by hand
-  instead of via import.
+  instead of via import. (Development text for a `motifs`/`conflicts` entry
+  lives in the note's body, not frontmatter — see "Threads" below.)
 - You're not meant to hand-edit most of this as raw YAML day to day — see
   "Editing a note" below for the actual editor UI.
 
-## The note body: prose vs. "## Notes"
+## The note body: prose vs. "## Notes" / "## Threads"
 
 A structure note's body is split into two zones (see `src/utils/noteBody.ts`):
 
-- Everything before a `## Notes` heading is **prose** — the actual scene/
-  chapter text, whatever (update-)import writes.
-- `## Notes` and everything after it is **yours** — comments, research
-  notes, editorial remarks, whatever you want to jot down next to the text.
-  It's scaffolded automatically (even empty) on every note the plugin
-  writes, and is **never** touched by import or update-import, regardless
-  of which text mode you use (see "Word import" below). Word/page counts
-  only ever count the prose half.
+- Everything before the first `## Notes` or `## Threads` heading is
+  **prose** — the actual scene/chapter text, whatever (update-)import
+  writes.
+- From there to the end of the file is **yours** — never touched by import
+  or update-import, regardless of which text mode you use (see "Word
+  import" below). Word/page counts only ever count the prose half. Two
+  headings live here:
+  - `## Notes` — free-form comments, research notes, editorial remarks.
+    Scaffolded automatically (even empty) on every note the plugin writes.
+  - `## Threads` — machine-managed, one `### [[Thread note]]` sub-heading
+    per conflict/motif this scene references, followed by that thread's
+    development text here (see below). Only appears once you've actually
+    recorded a development.
 
-A note written before this convention existed (no `## Notes` heading yet)
-is treated as pure prose the first time it's touched — there's no way to
-retroactively tell mixed-in remarks apart from prose in an old file.
+A note written before this convention existed (no `## Notes`/`## Threads`
+heading yet) is treated as pure prose the first time it's touched — there's
+no way to retroactively tell mixed-in remarks apart from prose in an old
+file.
 
 ## Threads: tracking conflicts and motifs across the book
 
 Conflicts and motifs are both things that run through the whole novel and
 develop scene by scene — "threads". Rather than being arbitrary links to
 whatever note, each one is a dedicated note (`type: conflict` or
-`type: motif`) living in a shared `<structure folder>/Threads/` subfolder.
+`type: motif`) living in a shared `<structure folder>/Threads/` subfolder,
+with its own `title`, `summary`, `characters` (`[[links]]`), and
+`thread_status` (`open`/`developing`/`resolved`). Conflicts additionally get
+a `scope` (`internal`/`interpersonal`/`external`, optional/"Unspecified" by
+default — a fixed dropdown, not free text; named "scope" rather than
+"category" to avoid colliding with `category` as used by some personal
+vault conventions). Motifs don't — that split is conflict-specific craft
+vocabulary that doesn't map naturally onto a recurring symbol/image.
 
-- In the editor, typing a **new** name under Conflicts/Motifs (instead of
-  picking an existing suggestion) creates a real note for it in `Threads/`
-  automatically — no dead links.
-- Every thread note is created with a **DataviewJS** query already inside
-  it that pulls together every scene/chapter referencing it, in book order,
-  next to whatever you wrote in that scene's matching `conflict_developments`/
-  `motif_developments` entry — a full development timeline, generated from
-  data that already lives in your scenes.
-- **Why two flat arrays instead of one list of `{thread, development}`
-  objects**: Obsidian only resolves `[[links]]` that sit inside a plain
-  top-level YAML string array — not inside nested objects. So `conflicts[i]`
-  (a link, resolvable, shows up in backlinks/graph) pairs with
-  `conflict_developments[i]` (free text) purely by array position, same for
-  motifs. `src/utils/threads.ts` and `src/utils/frontmatter.ts` are the
-  places this convention is documented in code.
-- A development entry can be **multi-line** — the field is a textarea, so
-  if more than one thing develops for the same thread in one scene, just
-  write a markdown list (`- beat one\n- beat two`); it's still a single
-  string in the array, no fancier data type needed, and the tracker query
-  renders it as embedded markdown.
-- The "Conflict editor" action (see below) jumps straight to a note's
-  Conflicts section instead of opening the full editor at the top.
+- The Threads folder gets a **`Threads.base`** (Obsidian's native Bases
+  feature) the first time any thread note is created, with three views,
+  each a table scoped to the folder via a `file.folder` filter:
+  **Overall** (both kinds, shown by default — `type`, `characters`,
+  `summary`, `thread_status`, `scope`), **Conflict** (`characters`,
+  `summary`, `scope`, `thread_status`), **Motif** (`characters`, `summary`,
+  `thread_status` — no `scope`, since that field doesn't exist for motifs
+  in the first place). Every thread note links back to it right under its
+  title. Bases is a fairly new Obsidian feature, so this is a best-effort
+  syntax rather than a verified one — if it doesn't load correctly, command
+  **"Regenerate Threads base"** overwrites it with a freshly generated one
+  once the syntax is fixed (also the way to pick up column changes on an
+  already-existing Threads.base).
+- A scene links a thread via a flat, top-level `conflicts`/`motifs`
+  frontmatter array of `[[links]]` — plain links, so Obsidian resolves them
+  for backlinks/graph. **The development text itself lives in the scene's
+  own body**, under `## Threads` (see above), not in frontmatter — prose
+  belongs in the body, not squeezed into YAML.
+- Development text is entered **one point at a time**: a single-line field
+  where typing a point and pressing Enter (or "+") immediately commits it as
+  a markdown bullet and clears the field for the next one, instead of one
+  continuously-edited textarea block. Existing points show underneath,
+  individually removable.
+- **`ThreadEditorModal`** (command **"Open thread editor"**, or the
+  **"Threads"** action on a note) is the dedicated editor and the *only*
+  place that links/creates a thread — switch between Conflict/Motif at the
+  top, then either pick an existing thread (a search field plus a grid of
+  existing ones, most recently edited first, to click straight into) or
+  create a new one (title, characters, scope, and — when opened from a
+  scene — what happens there right away). Editing an existing thread while a
+  scene is in context splits its timeline into what happened **before**
+  that scene, an always-editable box for what happens **in** it, and what
+  happens **after** — editing that box is exactly "add a development step
+  to an existing thread in the current scene". Without scene context (e.g.
+  invoked from the command palette with no active structure note) it falls
+  back to one flat, chronological list with an explicit scene picker to add
+  to. Opening a thread's own note directly (instead of via a scene) gets a
+  matching **"Edit thread"** header action, so there's a one-click way into
+  the same edit view from either direction.
+- Every thread note is created with a **"## Development timeline"** heading
+  followed by an embedded **DataviewJS** query that renders every
+  referencing scene as one compact bullet list — each scene as a top-level
+  `- [[Scene]]` item, with whatever's in its `### [[This thread]]`
+  sub-section indented underneath (a proper nested sub-list if that's a
+  bullet list itself).
+  Requires JavaScript queries enabled in Dataview's own settings (Community
+  plugins → Dataview → "Enable JavaScript Queries") — off by default there,
+  since it runs arbitrary code. This is a read-only, dependency-light
+  glance; `ThreadEditorModal` (see above) remains the actual editing
+  surface regardless of whether Dataview is installed, enabled, or renders
+  it a particular way. Only newly created thread notes get the current
+  version of this query — run command **"Refresh thread tracker query"**
+  with an existing thread note as the active file to swap its heading +
+  block for the latest version (matched by the heading text, so re-running
+  it never leaves a duplicate behind), or append one if it never had it.
+- A scene's own Conflicts/Motifs section (in `StructureNoteEditor`, see
+  "Editing a note" below) only *displays* its linked threads as chips with a
+  one-line preview of this scene's development text — a "+" next to the
+  section header, or clicking a chip, opens `ThreadEditorModal` to actually
+  add/edit one. No separate quick-add path, so there's exactly one place
+  that creates a thread or writes its development text.
+- Older files may still carry the previous scheme — a second, index-aligned
+  `conflict_developments`/`motif_developments` frontmatter array. That data
+  is preserved by (update-)import and gets lazily migrated into the body
+  the first time that scene's threads are read; there's no separate
+  migration step to run by hand.
+
+## Characters
+
+There's still no dedicated "character" note type — any note can be linked as
+one (`focus_character`/`side_characters`/`characters_mentioned` on a scene,
+`characters` on a thread). `src/utils/characters.ts` scans those links to
+build a registry of every character already in use, with a mention count,
+so:
+
+- Every character-picking field (on a scene, or a thread's Characters)
+  suggests already-known characters ahead of the rest of the vault, instead
+  of treating every note as an equally likely candidate.
+- **"Open character overview"** (command, or the person-shaped ribbon icon)
+  lists them all, sorted by classification (**Main** → **Recurring** →
+  **Side** → **Mentioned** → unclassified) then mention count, with a
+  divider right after the main characters. Each row gets an inline
+  toggle-button group instead of a dropdown — click a role to set it, click
+  the active one again to clear it back to unclassified. Manual, not
+  inferred, since a character can be the focus in one scene and a side
+  character in another. That classification lives in the plugin's own
+  settings (keyed by file path), not as a frontmatter field on the
+  character's own note — that note might not be "owned" by this plugin at
+  all (e.g. a note about a real person a character is based on), so the
+  plugin never writes into it.
 
 ## Editing a note
 
@@ -173,8 +250,9 @@ It's used in two places:
      content** (Reading View / Live Preview), via
      `registerMarkdownPostProcessor` — the same mechanism plugins like
      Dataview/Tasks use to put interactive UI inside rendered markdown.
-     Three buttons: **Show/Hide frontmatter**, **Edit data**, **Conflict
-     editor** (jumps straight to the Conflicts section).
+     Buttons for the frontmatter visibility mode, **Edit data**, and
+     **Threads** (opens `ThreadEditorModal` for this note, see "Threads"
+     above).
 
 The frontmatter/Properties block Obsidian renders at the top of every note
 is hidden by default for structure notes (toggle via either "frontmatter"
@@ -308,11 +386,14 @@ src/
     text.ts                        Word/page count helpers
     files.ts                       File recognition, unique names, link parsing
     frontmatter.ts                 Single source of truth for the note template
-    noteBody.ts                    Prose/"## Notes" body split & rejoin
+    noteBody.ts                    Prose/tail ("## Notes"/"## Threads") body split & rejoin
     rootNote.ts                    Root note CRUD + metadata sync (totals,
                                     subsections, previous/next, global_order)
-    threads.ts                     Conflicts/motifs: Threads/ folder,
+    threads.ts                     Conflicts/motifs: Threads/ folder + Base,
                                     note creation, DataviewJS tracker query
+    characters.ts                  Known-character registry (scanned from
+                                    existing links) + role storage (main/
+                                    recurring/side/mentioned)
     docxImport.ts                  Word import: parse (docx → tree) + write
     updateImport.ts                Update import: match, plan, apply
                                     (rename/update/create/delete)
@@ -320,13 +401,16 @@ src/
   classes/
     FolderSuggest.ts                Folder-path autocomplete
     NoteLinkSuggest.ts               Note-title autocomplete for link fields
-                                      (recent-first on an empty query)
+                                      (recent-first on an empty query, or a
+                                      custom rank fn — e.g. characters.ts)
+    FieldBuilders.ts                Shared form-field builders (text/textarea/
+                                     dropdown/link-list/bullet-list-commit)
     StructureNoteEditor.ts          Shared metadata-editing form (board card
                                      + MetadataEditorModal both use this)
     modals/
       StatusModal.ts                Set draft/todo/in_progress/review/revision/done
-      CharacterSelectModal.ts       Pick focus/side/mentioned characters
-                                     (opt-in roster for type: character notes)
+      CharacterOverviewModal.ts     Every known character + a role toggle group
+      ThreadEditorModal.ts          Conflict/motif editor (see "Threads" above)
       DocxPickModal.ts              Choose a .docx file from the vault
       HeadingMappingModal.ts        Map heading levels → structure types
                                      (import or update-import mode)

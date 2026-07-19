@@ -55,6 +55,11 @@ export interface DailySelection {
   maybe: string[]; // todo IDs
 }
 
+/** How a structure note's raw frontmatter/properties block is displayed by
+ * default: fully hidden, just the structural links (parent/subsections/
+ * previous/next), or Obsidian's normal full properties view. */
+export type FrontmatterDisplayMode = "hidden" | "structure" | "visible";
+
 export interface NovelStructureSettings {
   structureFolder: string; // vault-relative path, everything lives here
   wordsPerPage: number;
@@ -64,6 +69,15 @@ export interface NovelStructureSettings {
   typeLabels: Record<StructureType, string>; // display/filename label per structure type
   includeTypeInFileName: boolean; // prefix new file names with their type label, e.g. "Scene - Title"
   boardVisibleDepth: StructureType; // deepest level shown as a card grid by default on the novel board; anything deeper needs focusing a card to reveal
+  defaultFrontmatterDisplay: FrontmatterDisplayMode; // starting point when opening a structure note; overridable per-note via the toggle button
+  structureViewShowTypeLabels: boolean; // prefix each row in the structure view with its type label, e.g. "Chapter - Title"
+  // Manually curated main/side classification, keyed by file path (not
+  // basename — a character note can live anywhere in the vault, not just
+  // the structure folder, so paths could collide on name alone). Kept here
+  // rather than as frontmatter on the character's own note: that note might
+  // not be "owned" by this plugin at all (e.g. a note about a real person
+  // a character is based on), so the plugin shouldn't write fields onto it.
+  characterRoles: Record<string, "main" | "recurring" | "side" | "mentioned">;
 }
 
 export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
@@ -88,6 +102,9 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   typeLabels: { ...DEFAULT_TYPE_LABELS },
   includeTypeInFileName: true,
   boardVisibleDepth: "subchapter",
+  defaultFrontmatterDisplay: "hidden",
+  structureViewShowTypeLabels: true,
+  characterRoles: {},
 };
 
 export const VIEW_TYPE_STRUCTURE = "novel-structure-view";

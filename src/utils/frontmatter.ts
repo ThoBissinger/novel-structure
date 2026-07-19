@@ -36,13 +36,10 @@ export function buildStructureFrontmatter(input: StructureFrontmatterInput): str
     `side_characters: []`,
     `characters_mentioned: []`,
     `locations: []`,
-    `categories: []`,
     `motifs: []`,
-    `motif_developments: []`,
     `year: `,
     `month: `,
     `conflicts: []`,
-    `conflict_developments: []`,
     `todos: []`,
     `status: ${input.status ?? "todo"}`,
     `revision: `,
@@ -75,19 +72,16 @@ export const OBSIDIAN_ONLY_FRONTMATTER_DEFAULTS: Record<string, unknown> = {
   side_characters: [],
   characters_mentioned: [],
   locations: [],
-  categories: [],
   motifs: [],
-  // Two flat, index-aligned arrays instead of a list of {thread, development}
-  // objects: Obsidian only resolves [[links]] inside a plain top-level string
-  // array, not inside nested objects, so motifs[i]/conflicts[i] pair with
-  // motif_developments[i]/conflict_developments[i] by position rather than
-  // nesting them together. Each development string may itself be multi-line
-  // free text (e.g. a markdown list) if a scene moves a thread forward in
-  // more than one way — see threads.ts.
-  motif_developments: [],
   year: null,
   month: null,
   conflicts: [],
+  // motif_developments/conflict_developments: no longer written for new
+  // files (development text now lives in the scene body's "## Threads"
+  // section, see threads.ts) — kept here only so update-import never
+  // touches an *existing* file's leftover legacy values before threads.ts
+  // gets a chance to lazily migrate them into the body.
+  motif_developments: [],
   conflict_developments: [],
   todos: [],
   status: "todo",
