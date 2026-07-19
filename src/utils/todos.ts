@@ -2,20 +2,18 @@ import { App, Notice, TFile } from "obsidian";
 import type NovelStructurePlugin from "../main";
 import { Priority, PRIORITY_ORDER, TodoEntry, TodoItem } from "../types";
 import { isStructureFile } from "./files";
+import { generateTodoId, readTodos, splitFrontmatterAndBody, writeTodos } from "./noteBody";
 
 // ---------------------------------------------------------------------------
-// Todos live in each note's frontmatter as a `todos: [{id, text, done,
-// priority}]` array — including the private todo file. This keeps them safe
-// from the update-import flow, which replaces a matched structure note's
-// *body* wholesale with the freshly re-imported Word text but only ever
-// backfills/leaves frontmatter alone (see OBSIDIAN_ONLY_FRONTMATTER_DEFAULTS
-// in frontmatter.ts); a body-based checklist would get silently wiped on
-// every re-import.
+// Todos live in each note's body as a "## Todos" checklist (see noteBody.ts)
+// — including the private todo file — instead of frontmatter, so they render
+// as real, clickable checkboxes instead of raw YAML. Being part of the tail
+// (noteBody.ts), they survive (update-)import verbatim in every text mode,
+// same as "## Notes"/"## Threads". Older files may still carry a legacy
+// frontmatter `todos: [...]` array; migrateLegacyTodos() moves it into the
+// body lazily the first time this file's todos are touched — no separate
+// one-off migration step to run.
 // ---------------------------------------------------------------------------
-
-function generateTodoId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 export function privateTodoPath(plugin: NovelStructurePlugin): string {
   return `${plugin.settings.structureFolder}/${plugin.settings.privateTodoFile}`;
@@ -29,10 +27,39 @@ export async function ensurePrivateTodoFile(plugin: NovelStructurePlugin): Promi
   if (!(await plugin.app.vault.adapter.exists(plugin.settings.structureFolder))) {
     await plugin.app.vault.createFolder(plugin.settings.structureFolder);
   }
-  return plugin.app.vault.create(path, "---\ntype: private-todos\ntodos: []\n---\n\n# Private Todos\n");
+  return plugin.app.vault.create(path, "---\ntype: private-todos\n---\n\n# Private Todos\n\n## Notes\n");
 }
 
-/** Reads every note's frontmatter `todos` array (structure files + the private todo file). */
+/** Moves a file's legacy frontmatter `todos` array (if any, and if the body
+ * doesn't already have entries) into its body "## Todos" section. No-op once
+ * migrated, or if there was nothing to migrate. */
+async function migrateLegacyTodos(app: App, file: TFile): Promise<void> {
+  const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+  const legacy: TodoEntry[] | undefined = fm?.todos;
+  if (!legacy || legacy.length === 0) return;
+
+  const content = await app.vault.read(file);
+  const { body } = splitFrontmatterAndBody(content);
+  if (readTodos(body).length > 0) return; // body already has entries — don't clobber
+
+  await app.vault.process(file, (data) => {
+    const split = splitFrontmatterAndBody(data);
+    return split.frontmatterBlock + writeTodos(split.body, legacy);
+  });
+  await app.fileManager.processFrontMatter(file, (f) => {
+    f.todos = [];
+  });
+}
+
+/** Reads one file's todos out of its body, migrating any legacy frontmatter
+ * todos into it first. */
+export async function readTodosForFile(app: App, file: TFile): Promise<TodoEntry[]> {
+  await migrateLegacyTodos(app, file);
+  const content = await app.vault.read(file);
+  return readTodos(splitFrontmatterAndBody(content).body);
+}
+
+/** Reads every note's body "## Todos" section (structure files + the private todo file). */
 export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoItem[]> {
   const app = plugin.app;
   const privatePath = privateTodoPath(plugin);
@@ -41,24 +68,24 @@ export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoIt
     .filter((f) => f.path === privatePath || isStructureFile(app, f, plugin.settings));
 
   const allTodos: TodoItem[] = [];
-  relevantFiles.forEach((file) => {
+  for (const file of relevantFiles) {
     const isPrivate = file.path === privatePath;
     const fm = app.metadataCache.getFileCache(file)?.frontmatter;
     const fileTitle = isPrivate ? "Private" : fm?.title || file.basename;
-    const entries: TodoEntry[] = fm?.todos ?? [];
+    const entries = await readTodosForFile(app, file);
 
     entries.forEach((entry) => {
       allTodos.push({
         id: entry.id,
         text: entry.text,
-        done: !!entry.done,
-        priority: entry.priority ?? "medium",
+        done: entry.done,
+        priority: entry.priority,
         source: isPrivate ? "private" : "scene",
         filePath: file.path,
         fileTitle,
       });
     });
-  });
+  }
 
   return allTodos;
 }
@@ -71,16 +98,19 @@ async function mutateTodoEntry(
 ): Promise<void> {
   const file = app.vault.getAbstractFileByPath(filePath);
   if (!(file instanceof TFile)) return;
-  await app.fileManager.processFrontMatter(file, (fm) => {
-    const entries: TodoEntry[] = fm.todos ?? [];
+  await migrateLegacyTodos(app, file);
+
+  let found = false;
+  await app.vault.process(file, (data) => {
+    const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
+    const entries = readTodos(body);
     const entry = entries.find((e) => e.id === id);
-    if (!entry) {
-      new Notice("Todo could not be found anymore (file may have changed in the meantime).");
-      return;
-    }
+    if (!entry) return data;
     mutator(entry);
-    fm.todos = entries;
+    found = true;
+    return frontmatterBlock + writeTodos(body, entries);
   });
+  if (!found) new Notice("Todo could not be found anymore (file may have changed in the meantime).");
 }
 
 export async function setTodoDone(app: App, item: TodoItem, done: boolean): Promise<void> {
@@ -96,12 +126,14 @@ export function nextPriority(current: Priority): Priority {
   return PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length];
 }
 
-/** Appends a new todo entry to a note's frontmatter `todos` array. */
+/** Appends a new todo to a note's body "## Todos" section. */
 export async function addTodo(app: App, file: TFile, text: string, priority: Priority): Promise<void> {
-  await app.fileManager.processFrontMatter(file, (fm) => {
-    const entries: TodoEntry[] = fm.todos ?? [];
+  await migrateLegacyTodos(app, file);
+  await app.vault.process(file, (data) => {
+    const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
+    const entries = readTodos(body);
     entries.push({ id: generateTodoId(), text, done: false, priority });
-    fm.todos = entries;
+    return frontmatterBlock + writeTodos(body, entries);
   });
 }
 

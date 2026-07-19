@@ -78,6 +78,10 @@ export interface NovelStructureSettings {
   // not be "owned" by this plugin at all (e.g. a note about a real person
   // a character is based on), so the plugin shouldn't write fields onto it.
   characterRoles: Record<string, "main" | "recurring" | "side" | "mentioned">;
+  // Same idea as characterRoles, scaled down: locations only get one manual
+  // distinction (primary vs. not), so a plain list of paths is enough —
+  // see locations.ts.
+  primaryLocations: string[];
 }
 
 export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
@@ -105,10 +109,12 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   defaultFrontmatterDisplay: "hidden",
   structureViewShowTypeLabels: true,
   characterRoles: {},
+  primaryLocations: [],
 };
 
 export const VIEW_TYPE_STRUCTURE = "novel-structure-view";
 export const VIEW_TYPE_BOARD = "novel-structure-board-view";
+export const VIEW_TYPE_NARRATIVE_CHART = "novel-structure-narrative-chart-view";
 
 export type Priority = "high" | "medium" | "low";
 

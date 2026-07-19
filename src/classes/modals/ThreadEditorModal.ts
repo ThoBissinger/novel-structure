@@ -2,10 +2,12 @@ import { App, Modal, Notice, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { characterCandidateRank } from "../../utils/characters";
 import { isStructureFile } from "../../utils/files";
+import { locationCandidateRank } from "../../utils/locations";
 import {
   addThreadDevelopmentToScene,
   collectThreadDevelopments,
   createThreadNote,
+  emptyThreadFields,
   isThreadFile,
   readThreadFields,
   saveThreadFields,
@@ -67,9 +69,7 @@ export class ThreadEditorModal extends Modal {
     this.sceneContext = sceneContext;
     this.chooserTab = initialChooserTab;
     this.onModalClose = onModalClose;
-    this.fields = file
-      ? readThreadFields(this.app, file)
-      : { title: "", summary: "", characters: [], scope: "", status: "open" };
+    this.fields = file ? readThreadFields(this.app, file) : emptyThreadFields();
     this.modalEl.addClass("novel-metadata-modal");
   }
 
@@ -82,7 +82,20 @@ export class ThreadEditorModal extends Modal {
   }
 
   private kindLabel(kind: ThreadKind = this.kind): string {
-    return kind === "conflict" ? "Conflict" : "Motif";
+    if (kind === "conflict") return "Conflict";
+    if (kind === "motif") return "Motif";
+    if (kind === "event") return "Event";
+    return "Plant";
+  }
+
+  /** Compact "start – end" label for an event's card in the picker grid —
+   * plain year/month, same convention as scenes' own date fields. */
+  private eventDateLabel(fields: ThreadFields): string {
+    const fmt = (y: number | null, m: number | null) => (y != null ? `${y}${m != null ? "-" + String(m).padStart(2, "0") : ""}` : "");
+    const start = fmt(fields.startYear, fields.startMonth);
+    const end = fmt(fields.endYear, fields.endMonth);
+    if (start && end && start !== end) return `${start} – ${end}`;
+    return start || end;
   }
 
   private scopeOptions(): [string, string][] {
@@ -104,7 +117,7 @@ export class ThreadEditorModal extends Modal {
 
   private renderKindSwitcher(container: HTMLElement) {
     const bar = container.createDiv({ cls: "novel-structure-mode-group novel-thread-kind-switcher" });
-    (["conflict", "motif"] as ThreadKind[]).forEach((k) => {
+    (["conflict", "motif", "event", "plant"] as ThreadKind[]).forEach((k) => {
       const btn = bar.createEl("button", {
         text: this.kindLabel(k),
         cls: "novel-structure-inline-btn novel-structure-mode-btn",
@@ -115,7 +128,7 @@ export class ThreadEditorModal extends Modal {
         this.kind = k;
         this.file = null;
         this.chooserTab = "existing";
-        this.fields = { title: "", summary: "", characters: [], scope: "", status: "open" };
+        this.fields = emptyThreadFields();
         this.newDevText = "";
         this.render();
       };
@@ -172,7 +185,9 @@ export class ThreadEditorModal extends Modal {
       const fields = readThreadFields(this.app, f);
       const card = grid.createEl("button", { cls: "novel-thread-pick-card" });
       card.createDiv({ text: fields.title, cls: "novel-thread-pick-card-title" });
-      const meta = [fields.scope, fields.status].filter(Boolean).join(" · ");
+      const meta = [fields.scope, this.kind === "event" ? this.eventDateLabel(fields) : "", fields.status]
+        .filter(Boolean)
+        .join(" · ");
       if (meta) card.createDiv({ text: meta, cls: "novel-thread-pick-card-meta" });
       card.onclick = () => pick(f);
     });
@@ -208,6 +223,7 @@ export class ThreadEditorModal extends Modal {
       (links) => (this.fields.characters = links),
       { rank: characterCandidateRank(this.app, this.plugin.settings) }
     );
+    this.renderEventFields(form);
 
     if (this.sceneContext) {
       addBulletListField(
@@ -233,6 +249,55 @@ export class ThreadEditorModal extends Modal {
       this.newDevText = "";
       this.render();
     };
+  }
+
+  /** Event-only fields (see ThreadFields) — where and when it happened.
+   * Shared by renderCreateNew/renderEditView, same pattern as the
+   * conflict-only scope dropdown above. */
+  private renderEventFields(form: HTMLElement) {
+    if (this.kind !== "event") return;
+
+    addLinkListField(
+      this.app,
+      form,
+      "Locations",
+      this.fields.locations,
+      () => this.app.vault.getMarkdownFiles(),
+      (links) => (this.fields.locations = links),
+      { rank: locationCandidateRank(this.app, this.plugin.settings) }
+    );
+
+    const startRow = form.createDiv({ cls: "novel-board-field-row" });
+    addTextField(
+      startRow,
+      "Start year",
+      this.fields.startYear != null ? String(this.fields.startYear) : "",
+      (v) => (this.fields.startYear = v.trim() ? parseInt(v, 10) : null),
+      { type: "number", extraClass: "novel-board-field-narrow" }
+    );
+    addTextField(
+      startRow,
+      "Start month",
+      this.fields.startMonth != null ? String(this.fields.startMonth) : "",
+      (v) => (this.fields.startMonth = v.trim() ? parseInt(v, 10) : null),
+      { type: "number", min: "1", max: "12", extraClass: "novel-board-field-narrow" }
+    );
+
+    const endRow = form.createDiv({ cls: "novel-board-field-row" });
+    addTextField(
+      endRow,
+      "End year",
+      this.fields.endYear != null ? String(this.fields.endYear) : "",
+      (v) => (this.fields.endYear = v.trim() ? parseInt(v, 10) : null),
+      { type: "number", extraClass: "novel-board-field-narrow" }
+    );
+    addTextField(
+      endRow,
+      "End month",
+      this.fields.endMonth != null ? String(this.fields.endMonth) : "",
+      (v) => (this.fields.endMonth = v.trim() ? parseInt(v, 10) : null),
+      { type: "number", min: "1", max: "12", extraClass: "novel-board-field-narrow" }
+    );
   }
 
   // -------------------------------------------------------------------
@@ -282,6 +347,7 @@ export class ThreadEditorModal extends Modal {
       (links) => (this.fields.characters = links),
       { rank: characterCandidateRank(this.app, this.plugin.settings) }
     );
+    this.renderEventFields(form);
 
     const saveBtn = form.createEl("button", { text: "Save", cls: "novel-board-copyfrom-btn" });
     saveBtn.onclick = async () => {

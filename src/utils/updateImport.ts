@@ -55,13 +55,27 @@ export function getUpdatableStructureFiles(
     .filter((f) => isStructureFile(app, f, settings) && f.path !== rootFile?.path);
 }
 
-/** Pairs re-parsed headings with existing files by exact title match.
- * Ambiguous titles (0 or 2+ candidates) are left unmatched for manual review. */
-export function computeAutoMatches(
-  app: App,
-  nodes: ParsedNode[],
-  files: TFile[]
-): Map<number, TFile> {
+export interface AutoMatchResult {
+  matches: Map<number, TFile>;
+  // Unmatched nodes whose title exactly matches an existing file that
+  // *isn't* available anymore — either every file with that title was
+  // already claimed by an earlier node this same run, or the title is
+  // genuinely ambiguous (2+ files share it). Left out of `matches` just
+  // like a real "no such file" case, but this is a fundamentally different
+  // situation worth calling out loudly: it means the title isn't new at
+  // all, so silently falling through to "create new" would produce a
+  // same-content duplicate ("Title 2") rather than a genuinely new file —
+  // the classic case being a heading moved to a new parent in Word by copy
+  // instead of cut, so it (or its content) still exists twice in the doc.
+  duplicateOf: Map<number, TFile>;
+}
+
+/** Pairs re-parsed headings with existing files by exact title match, in
+ * document order — the first node with a given title claims the (only, or
+ * first free) existing file with that title; any later node sharing the
+ * same title finds nothing left to claim and is reported via
+ * `duplicateOf` instead of silently becoming "no match, create new". */
+export function computeAutoMatches(app: App, nodes: ParsedNode[], files: TFile[]): AutoMatchResult {
   const filesByTitle = new Map<string, TFile[]>();
   files.forEach((f) => {
     const fm = app.metadataCache.getFileCache(f)?.frontmatter;
@@ -72,14 +86,18 @@ export function computeAutoMatches(
 
   const used = new Set<string>();
   const matches = new Map<number, TFile>();
+  const duplicateOf = new Map<number, TFile>();
   nodes.forEach((node, i) => {
-    const candidates = (filesByTitle.get(node.title) ?? []).filter((f) => !used.has(f.path));
+    const allWithTitle = filesByTitle.get(node.title) ?? [];
+    const candidates = allWithTitle.filter((f) => !used.has(f.path));
     if (candidates.length === 1) {
       matches.set(i, candidates[0]);
       used.add(candidates[0].path);
+    } else if (allWithTitle.length > 0) {
+      duplicateOf.set(i, allWithTitle[0]);
     }
   });
-  return matches;
+  return { matches, duplicateOf };
 }
 
 /** Runs `fn` over `items` with at most `limit` calls in flight at once. */
@@ -208,8 +226,14 @@ export async function applyUpdateImport(
       });
       updated++;
     } else {
-      // "keep" doesn't mean anything for a file that doesn't exist yet — treat it like "discard".
-      const newProse = textMode === "import" ? entry.contentText : "";
+      // "keep" protects *existing* prose — there's none to protect on a file
+      // that doesn't exist yet, so it gets the freshly parsed Word text same
+      // as "import" (this matters most for a heading newly split out of
+      // previously-merged content: the split-off portion lands here as real
+      // text, so only the old file's now-redundant tail needs trimming by
+      // hand instead of retyping everything). "discard" still means no text
+      // at all, full stop — that's an explicit choice, not a gap to close.
+      const newProse = textMode === "discard" ? "" : entry.contentText;
       // Same fallback as above: word count is always at least the Word-doc's real length.
       const wordCount = countWords(entry.contentText);
       const pageCount = calculatePages(wordCount, settings.wordsPerPage);

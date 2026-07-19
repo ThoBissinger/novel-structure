@@ -5,15 +5,17 @@ import { readThreadDevelopment, removeThreadDevelopment, splitFrontmatterAndBody
 
 // ---------------------------------------------------------------------------
 // "Threads" — the umbrella for things that run through the whole novel and
-// develop over time: conflicts and motifs. Both get dedicated notes (type:
-// conflict / type: motif) in a shared "Threads" subfolder of the structure
-// folder.
+// develop over time: conflicts, motifs, events, and plants (Chekhov's-gun
+// setups paid off later — status open/developing/resolved reads as
+// planted/reinforced/paid off). All four get dedicated notes (type:
+// conflict / type: motif / type: event / type: plant) in a shared "Threads"
+// subfolder of the structure folder.
 //
 // A scene tracks a thread two ways:
-//  - frontmatter: a flat, top-level `conflicts`/`motifs` array of [[links]]
-//    — just the links, so Obsidian resolves them (backlinks/graph) and our
-//    own collector can find every scene referencing a thread cheaply via
-//    metadataCache without touching disk.
+//  - frontmatter: a flat, top-level `conflicts`/`motifs`/`events`/`plants`
+//    array of [[links]] — just the links, so Obsidian resolves them
+//    (backlinks/graph) and our own collector can find every scene
+//    referencing a thread cheaply via metadataCache without touching disk.
 //  - body: the free-text development for each of those links lives in the
 //    scene's own "## Threads" section (see noteBody.ts) instead of
 //    frontmatter — prose belongs in the body, not squeezed into a YAML
@@ -21,27 +23,35 @@ import { readThreadDevelopment, removeThreadDevelopment, splitFrontmatterAndBody
 //    thread if more than one thing develops there.
 //
 // Older files may still carry the previous scheme (a second, index-aligned
-// `conflict_developments`/`motif_developments` frontmatter array). That data
-// is never dropped by (update-)import (see OBSIDIAN_ONLY_FRONTMATTER_DEFAULTS
-// in frontmatter.ts) and gets lazily migrated into the body the first time
-// this file's threads are read (see migrateLegacyThreadDevelopment below) —
-// there is no separate one-off migration step to run.
+// `conflict_developments`/`motif_developments` frontmatter array — this
+// predates events, which never had it). That data is never dropped by
+// (update-)import (see OBSIDIAN_ONLY_FRONTMATTER_DEFAULTS in frontmatter.ts)
+// and gets lazily migrated into the body the first time this file's threads
+// are read (see migrateLegacyThreadDevelopment below) — there is no separate
+// one-off migration step to run.
 // ---------------------------------------------------------------------------
 
-export type ThreadKind = "conflict" | "motif";
+export type ThreadKind = "conflict" | "motif" | "event" | "plant";
 export type ThreadStatus = "open" | "developing" | "resolved";
 export const THREAD_STATUSES: ThreadStatus[] = ["open", "developing", "resolved"];
 
 export interface ThreadFieldNames {
-  links: "conflicts" | "motifs";
+  links: "conflicts" | "motifs" | "events" | "plants";
   /** @deprecated legacy frontmatter array, kept only as a migration source — see migrateLegacyThreadDevelopment. */
-  legacyDevelopments: "conflict_developments" | "motif_developments";
+  legacyDevelopments: "conflict_developments" | "motif_developments" | "event_developments" | "plant_developments";
 }
 
 export function threadFieldNames(kind: ThreadKind): ThreadFieldNames {
-  return kind === "conflict"
-    ? { links: "conflicts", legacyDevelopments: "conflict_developments" }
-    : { links: "motifs", legacyDevelopments: "motif_developments" };
+  switch (kind) {
+    case "conflict":
+      return { links: "conflicts", legacyDevelopments: "conflict_developments" };
+    case "motif":
+      return { links: "motifs", legacyDevelopments: "motif_developments" };
+    case "event":
+      return { links: "events", legacyDevelopments: "event_developments" };
+    case "plant":
+      return { links: "plants", legacyDevelopments: "plant_developments" };
+  }
 }
 
 export function threadsFolderPath(settings: NovelStructureSettings): string {
@@ -53,8 +63,9 @@ export const THREADS_BASE_NAME = "Threads.base";
 // Obsidian's native Bases feature (`.base` files) is fairly new — this is a
 // best-effort guess at the current syntax, not a verified-working one; see
 // `regenerateThreadsBase` for the recovery path if it turns out wrong.
-// Three views: "Overall" (both kinds, shown by default since it's first),
-// "Conflict", "Motif" — each a simple table scoped to the Threads folder.
+// Five views: "Overall" (all kinds, shown by default since it's first),
+// "Conflict", "Motif", "Event", "Plant" — each a simple table scoped to the
+// Threads folder.
 function buildThreadsBaseContent(settings: NovelStructureSettings): string {
   const folder = threadsFolderPath(settings);
   return [
@@ -68,6 +79,7 @@ function buildThreadsBaseContent(settings: NovelStructureSettings): string {
     "      - file.name",
     "      - type",
     "      - characters",
+    "      - locations",
     "      - summary",
     "      - thread_status",
     "      - scope",
@@ -87,6 +99,31 @@ function buildThreadsBaseContent(settings: NovelStructureSettings): string {
     "    filters:",
     "      and:",
     '        - type == "motif"',
+    "    order:",
+    "      - file.name",
+    "      - characters",
+    "      - summary",
+    "      - thread_status",
+    "  - type: table",
+    "    name: Event",
+    "    filters:",
+    "      and:",
+    '        - type == "event"',
+    "    order:",
+    "      - file.name",
+    "      - characters",
+    "      - locations",
+    "      - start_year",
+    "      - start_month",
+    "      - end_year",
+    "      - end_month",
+    "      - summary",
+    "      - thread_status",
+    "  - type: table",
+    "    name: Plant",
+    "    filters:",
+    "      and:",
+    '        - type == "plant"',
     "    order:",
     "      - file.name",
     "      - characters",
@@ -125,7 +162,7 @@ export function isThreadFile(app: App, file: TFile, settings: NovelStructureSett
   const fm = app.metadataCache.getFileCache(file)?.frontmatter;
   if (!fm || !file.path.startsWith(threadsFolderPath(settings))) return false;
   if (kind) return fm.type === kind;
-  return fm.type === "conflict" || fm.type === "motif";
+  return fm.type === "conflict" || fm.type === "motif" || fm.type === "event" || fm.type === "plant";
 }
 
 // Fixed vocabulary rather than free text — named "scope" rather than
@@ -138,9 +175,33 @@ export const THREAD_SCOPES: ThreadScope[] = ["internal", "interpersonal", "exter
 export interface ThreadFields {
   title: string;
   summary: string;
-  characters: string[]; // [[links]] — parties involved (conflict) / who carries it (motif)
-  scope: ThreadScope | "";
+  characters: string[]; // [[links]] — parties involved (conflict) / who carries it (motif) / who's there (event)
+  scope: ThreadScope | ""; // conflict-only, see ThreadEditorModal
   status: ThreadStatus;
+  // Event-only (see ThreadEditorModal): where and when it happened. Plain
+  // numbers rather than a real calendar date, same convention as a scene's
+  // own `year`/`month` — keeps it usable for fictional calendars too.
+  locations: string[]; // [[links]]
+  startYear: number | null;
+  startMonth: number | null;
+  endYear: number | null;
+  endMonth: number | null;
+}
+
+/** A freshly created thread's fields with everything empty/unset. */
+export function emptyThreadFields(): ThreadFields {
+  return {
+    title: "",
+    summary: "",
+    characters: [],
+    scope: "",
+    status: "open",
+    locations: [],
+    startYear: null,
+    startMonth: null,
+    endYear: null,
+    endMonth: null,
+  };
 }
 
 /** Reads a thread note's own editable fields (not the per-scene development data). */
@@ -153,6 +214,11 @@ export function readThreadFields(app: App, file: TFile): ThreadFields {
     characters: fm.characters ?? [],
     scope: THREAD_SCOPES.includes(scope as ThreadScope) ? (scope as ThreadScope) : "",
     status: (fm.thread_status as ThreadStatus) ?? "open",
+    locations: fm.locations ?? [],
+    startYear: fm.start_year ?? null,
+    startMonth: fm.start_month ?? null,
+    endYear: fm.end_year ?? null,
+    endMonth: fm.end_month ?? null,
   };
 }
 
@@ -163,6 +229,11 @@ export async function saveThreadFields(app: App, file: TFile, fields: ThreadFiel
     fm.characters = fields.characters;
     fm.scope = fields.scope;
     fm.thread_status = fields.status;
+    fm.locations = fields.locations;
+    fm.start_year = fields.startYear;
+    fm.start_month = fields.startMonth;
+    fm.end_year = fields.endYear;
+    fm.end_month = fields.endMonth;
   });
 }
 
@@ -319,6 +390,11 @@ function buildThreadFrontmatter(kind: ThreadKind, fields: ThreadFields): string 
     yamlStringList("characters", fields.characters),
     `scope: ${fields.scope}`,
     `thread_status: ${fields.status}`,
+    yamlStringList("locations", fields.locations),
+    `start_year: ${fields.startYear ?? ""}`,
+    `start_month: ${fields.startMonth ?? ""}`,
+    `end_year: ${fields.endYear ?? ""}`,
+    `end_month: ${fields.endMonth ?? ""}`,
     "---",
     "",
     `# ${fields.title}`,
@@ -482,5 +558,5 @@ export async function ensureThreadNote(
   });
   if (existing) return existing;
 
-  return createThreadNote(app, settings, kind, { title, summary: "", characters: [], scope: "", status: "open" });
+  return createThreadNote(app, settings, kind, { ...emptyThreadFields(), title });
 }

@@ -865,3 +865,65 @@ textarea.novel-board-field-input {
   animation: novel-board-flash-anim 1.2s ease-out;
   border-radius: 6px;
 }
+
+/* ---- Narrative chart (xkcd-#657-style character flow) ---- */
+.novel-narrative-chart {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.novel-narrative-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+.novel-narrative-min-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.novel-narrative-min-wrap input {
+  width: 52px;
+}
+.novel-narrative-scroller {
+  overflow: auto;
+  flex: 1;
+  padding: 4px 12px 12px;
+}
+.novel-narrative-empty {
+  padding: 24px;
+  color: var(--text-muted);
+}
+.novel-narrative-capsule {
+  fill: var(--background-modifier-hover);
+  stroke: var(--background-modifier-border);
+  cursor: pointer;
+}
+.novel-narrative-capsule:hover {
+  fill: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  stroke: var(--text-accent);
+}
+.novel-narrative-line {
+  fill: none;
+  stroke-width: 2.5;
+  transition: opacity 0.15s ease, stroke-width 0.15s ease;
+}
+svg.has-hover .novel-narrative-line:not(.is-hovered) {
+  opacity: 0.25;
+}
+.novel-narrative-line.is-hovered {
+  stroke-width: 4;
+}
+.novel-narrative-scene-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.novel-narrative-name-label {
+  font-size: 12px;
+  font-weight: 600;
+}

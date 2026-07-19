@@ -24,6 +24,7 @@ export class ImportMatchModal extends Modal {
 
   existingFiles: TFile[];
   autoMatches: Map<number, TFile>;
+  duplicateOf: Map<number, TFile>;
   manualMatches: Map<number, TFile> = new Map();
   deleteListEl!: HTMLElement;
   textMode: UpdateTextMode = "import";
@@ -37,7 +38,9 @@ export class ImportMatchModal extends Modal {
 
     const root = findRootNote(this.app, this.plugin.settings);
     this.existingFiles = getUpdatableStructureFiles(this.app, this.plugin.settings, root);
-    this.autoMatches = computeAutoMatches(this.app, this.parsed.nodes, this.existingFiles);
+    const result = computeAutoMatches(this.app, this.parsed.nodes, this.existingFiles);
+    this.autoMatches = result.matches;
+    this.duplicateOf = result.duplicateOf;
   }
 
   private unmatchedNodeIndices(): number[] {
@@ -61,8 +64,8 @@ export class ImportMatchModal extends Modal {
   private updateTextModeWarning() {
     const messages: Record<UpdateTextMode, string> = {
       import: "⚠️ Matched files get their prose text replaced with the freshly imported Word version.",
-      keep: "ℹ️ Prose text is left exactly as-is on matched files; only structure/metadata is refreshed.",
-      discard: "⚠️ Prose text on every matched file is cleared out (word count → 0). This cannot be undone from here.",
+      keep: "ℹ️ Prose text is left exactly as-is on matched files. Newly created files (headings with no match below) still get the Word text — there's no existing prose of yours to protect on those.",
+      discard: "⚠️ Prose text on every matched file is cleared out (word count → 0), and newly created files start empty too. This cannot be undone from here.",
     };
     this.textModeWarningEl.setText(messages[this.textMode]);
     this.textModeWarningEl.style.color =
@@ -140,6 +143,19 @@ export class ImportMatchModal extends Modal {
 
       unmatchedIdx.forEach((i) => {
         const node: ParsedNode = this.parsed.nodes[i];
+        const duplicate = this.duplicateOf.get(i);
+        if (duplicate) {
+          const warn = contentEl.createEl("p", {
+            text:
+              `⚠️ A file titled "${node.title}" already exists (${duplicate.path}) but is already claimed by ` +
+              `another heading — this looks like the same heading appearing twice in the Word document (e.g. ` +
+              `moved to a new parent by copying instead of cutting), not a genuinely new one. Leaving this as ` +
+              `"Create new file" will produce a duplicate ("${node.title} 2") with the same content instead of ` +
+              `moving/updating the original. Check the Word document for a leftover heading before applying, or ` +
+              `delete whichever copy is stale after applying.`,
+          });
+          warn.style.color = "var(--text-warning, #e0a800)";
+        }
         new Setting(contentEl).setName(`${node.title}`).setDesc(node.type).addDropdown((dd) => {
           dd.addOption("", "— Create new file —");
           this.unmatchedFiles().forEach((f) => {

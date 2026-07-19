@@ -55,7 +55,7 @@ motifs: []                     # [[links]] into Threads/ (see below) — develop
 year:                          # plain number, optional
 month:                         # plain number 1–12, optional
 conflicts: []                  # [[links]] into Threads/ (see below) — development text lives in the body, not here
-todos: []                      # [{id, text, done, priority}] — see "Todos" below
+events: []                     # [[links]] into Threads/ (see below) — development text lives in the body, not here
 status: draft                  # draft | todo | in_progress | review | revision | done
 revision:
 planned_length:                # target length (pages), your own scale
@@ -93,68 +93,84 @@ subsections: []         # auto: this novel's top-level sections
   `order`, `global_order`.
 - **Yours to edit freely**: everything else — `tags`, `summary`,
   `focus_character`, `side_characters`, `characters_mentioned`, `locations`,
-  `motifs`, `conflicts`, `todos`, `year`/`month`, `status`, `revision`,
+  `motifs`, `conflicts`, `year`/`month`, `status`, `revision`,
   `planned_length`. Also `parent`, if you want to re-parent a note by hand
-  instead of via import. (Development text for a `motifs`/`conflicts` entry
-  lives in the note's body, not frontmatter — see "Threads" below.)
+  instead of via import. (Development text for a `motifs`/`conflicts` entry,
+  and todos, live in the note's body, not frontmatter — see below.)
 - You're not meant to hand-edit most of this as raw YAML day to day — see
   "Editing a note" below for the actual editor UI.
 
-## The note body: prose vs. "## Notes" / "## Threads"
+## The note body: prose vs. "## Notes" / "## Todos" / "## Threads"
 
 A structure note's body is split into two zones (see `src/utils/noteBody.ts`):
 
-- Everything before the first `## Notes` or `## Threads` heading is
-  **prose** — the actual scene/chapter text, whatever (update-)import
+- Everything before the first `## Notes`, `## Todos` or `## Threads` heading
+  is **prose** — the actual scene/chapter text, whatever (update-)import
   writes.
 - From there to the end of the file is **yours** — never touched by import
   or update-import, regardless of which text mode you use (see "Word
-  import" below). Word/page counts only ever count the prose half. Two
+  import" below). Word/page counts only ever count the prose half. Three
   headings live here:
   - `## Notes` — free-form comments, research notes, editorial remarks.
     Scaffolded automatically (even empty) on every note the plugin writes.
+  - `## Todos` — a plain Markdown checklist, one line per todo
+    (`- [ ] Text ⏫ ^id`, see "Todos" below) — real, clickable Obsidian
+    checkboxes instead of a frontmatter array. Only appears once you've
+    actually added a todo.
   - `## Threads` — machine-managed, one `### [[Thread note]]` sub-heading
     per conflict/motif this scene references, followed by that thread's
     development text here (see below). Only appears once you've actually
     recorded a development.
 
-A note written before this convention existed (no `## Notes`/`## Threads`
-heading yet) is treated as pure prose the first time it's touched — there's
-no way to retroactively tell mixed-in remarks apart from prose in an old
-file.
+A note written before this convention existed (no `## Notes`/`## Todos`/
+`## Threads` heading yet) is treated as pure prose the first time it's
+touched — there's no way to retroactively tell mixed-in remarks apart from
+prose in an old file.
 
-## Threads: tracking conflicts and motifs across the book
+## Threads: tracking conflicts, motifs, events and plants across the book
 
-Conflicts and motifs are both things that run through the whole novel and
-develop scene by scene — "threads". Rather than being arbitrary links to
-whatever note, each one is a dedicated note (`type: conflict` or
-`type: motif`) living in a shared `<structure folder>/Threads/` subfolder,
-with its own `title`, `summary`, `characters` (`[[links]]`), and
-`thread_status` (`open`/`developing`/`resolved`). Conflicts additionally get
-a `scope` (`internal`/`interpersonal`/`external`, optional/"Unspecified" by
-default — a fixed dropdown, not free text; named "scope" rather than
-"category" to avoid colliding with `category` as used by some personal
-vault conventions). Motifs don't — that split is conflict-specific craft
-vocabulary that doesn't map naturally onto a recurring symbol/image.
+Conflicts, motifs, events and plants are all things that run through the
+whole novel and develop scene by scene — "threads". Rather than being
+arbitrary links to whatever note, each one is a dedicated note
+(`type: conflict`, `type: motif`, `type: event` or `type: plant`) living in
+a shared `<structure folder>/Threads/` subfolder, with its own `title`,
+`summary`, `characters` (`[[links]]`), and `thread_status`
+(`open`/`developing`/`resolved`). Conflicts additionally get a `scope`
+(`internal`/`interpersonal`/`external`, optional/"Unspecified" by default —
+a fixed dropdown, not free text; named "scope" rather than "category" to
+avoid colliding with `category` as used by some personal vault conventions)
+— the other three don't, that split is conflict-specific craft vocabulary
+that doesn't map naturally onto a recurring symbol/image, an event, or a
+setup. Events additionally get `locations` (`[[links]]`) and a start/end
+date (`start_year`/`start_month`/`end_year`/`end_month` — plain numbers,
+same convention as a scene's own `year`/`month`, so it also works for
+fictional calendars) — the other three don't, since they aren't tied to a
+single place or point in time. **Plants** ("Chekhov's gun" / "plant and
+payoff": something set up early and paid off later) get no extra fields at
+all — `thread_status` alone already carries the meaning
+(`open`/`developing`/`resolved` reads as planted/reinforced/paid off).
 
 - The Threads folder gets a **`Threads.base`** (Obsidian's native Bases
-  feature) the first time any thread note is created, with three views,
-  each a table scoped to the folder via a `file.folder` filter:
-  **Overall** (both kinds, shown by default — `type`, `characters`,
+  feature) the first time any thread note is created, with five views, each
+  a table scoped to the folder via a `file.folder` filter: **Overall** (all
+  four kinds, shown by default — `type`, `characters`, `locations`,
   `summary`, `thread_status`, `scope`), **Conflict** (`characters`,
   `summary`, `scope`, `thread_status`), **Motif** (`characters`, `summary`,
   `thread_status` — no `scope`, since that field doesn't exist for motifs
-  in the first place). Every thread note links back to it right under its
-  title. Bases is a fairly new Obsidian feature, so this is a best-effort
-  syntax rather than a verified one — if it doesn't load correctly, command
-  **"Regenerate Threads base"** overwrites it with a freshly generated one
-  once the syntax is fixed (also the way to pick up column changes on an
-  already-existing Threads.base).
-- A scene links a thread via a flat, top-level `conflicts`/`motifs`
-  frontmatter array of `[[links]]` — plain links, so Obsidian resolves them
-  for backlinks/graph. **The development text itself lives in the scene's
-  own body**, under `## Threads` (see above), not in frontmatter — prose
-  belongs in the body, not squeezed into YAML.
+  in the first place), **Event** (`characters`, `locations`, `start_year`,
+  `start_month`, `end_year`, `end_month`, `summary`, `thread_status`),
+  **Plant** (`characters`, `summary`, `thread_status`). Every thread note
+  links back to it right under its title. Bases is a fairly new Obsidian
+  feature, so this is a best-effort syntax rather than a verified one — if
+  it doesn't load correctly, command **"Regenerate Threads base"**
+  overwrites it with a freshly generated one once the syntax is fixed (also
+  the way to pick up column changes on an already-existing Threads.base).
+- A scene links a thread via a flat, top-level
+  `conflicts`/`motifs`/`events`/`plants` frontmatter array of `[[links]]` —
+  plain links, so Obsidian resolves them for backlinks/graph. **The
+  development text itself lives in the scene's own body**, under
+  `## Threads` (see above), not in frontmatter — prose belongs in the body,
+  not squeezed into YAML.
 - Development text is entered **one point at a time**: a single-line field
   where typing a point and pressing Enter (or "+") immediately commits it as
   a markdown bullet and clears the field for the next one, instead of one
@@ -162,10 +178,11 @@ vocabulary that doesn't map naturally onto a recurring symbol/image.
   individually removable.
 - **`ThreadEditorModal`** (command **"Open thread editor"**, or the
   **"Threads"** action on a note) is the dedicated editor and the *only*
-  place that links/creates a thread — switch between Conflict/Motif at the
-  top, then either pick an existing thread (a search field plus a grid of
-  existing ones, most recently edited first, to click straight into) or
-  create a new one (title, characters, scope, and — when opened from a
+  place that links/creates a thread — switch between
+  Conflict/Motif/Event/Plant at the top, then either pick an existing thread
+  (a search field plus a grid of existing ones, most recently edited first,
+  to click straight into — event cards also show their date range) or
+  create a new one (title, characters, scope/dates, and — when opened from a
   scene — what happens there right away). Editing an existing thread while a
   scene is in context splits its timeline into what happened **before**
   that scene, an always-editable box for what happens **in** it, and what
@@ -192,13 +209,14 @@ vocabulary that doesn't map naturally onto a recurring symbol/image.
   with an existing thread note as the active file to swap its heading +
   block for the latest version (matched by the heading text, so re-running
   it never leaves a duplicate behind), or append one if it never had it.
-- A scene's own Conflicts/Motifs section (in `StructureNoteEditor`, see
-  "Editing a note" below) only *displays* its linked threads as chips with a
-  one-line preview of this scene's development text — a "+" next to the
-  section header, or clicking a chip, opens `ThreadEditorModal` to actually
-  add/edit one. No separate quick-add path, so there's exactly one place
-  that creates a thread or writes its development text.
-- Older files may still carry the previous scheme — a second, index-aligned
+- A scene's own Conflicts/Motifs/Events/Plants section (in `StructureNoteEditor`,
+  see "Editing a note" below) only *displays* its linked threads as chips
+  with a one-line preview of this scene's development text — a "+" next to
+  the section header, or clicking a chip, opens `ThreadEditorModal` to
+  actually add/edit one. No separate quick-add path, so there's exactly one
+  place that creates a thread or writes its development text.
+- Older files may still carry the previous scheme (conflicts/motifs only,
+  predates events) — a second, index-aligned
   `conflict_developments`/`motif_developments` frontmatter array. That data
   is preserved by (update-)import and gets lazily migrated into the body
   the first time that scene's threads are read; there's no separate
@@ -228,14 +246,83 @@ so:
   all (e.g. a note about a real person a character is based on), so the
   plugin never writes into it.
 
+## Locations
+
+Same idea as Characters, scaled down (`src/utils/locations.ts`): no
+dedicated "location" note type, `locations` links on scenes are scanned into
+a registry with a mention count, suggested ahead of the rest of the vault
+when picking a location. There's only one manual distinction — **Primary**
+(a single toggle button, not a multi-tier group, since locations don't have
+the focus/side/mentioned split characters do) — because a scene only has one
+flat `locations` list to begin with, nothing to derive finer tiers from.
+**"Open location overview"** (command, or the map-pin ribbon icon) lists
+them all, primary first with a divider, then by mention count.
+
+## Narrative chart (character flow)
+
+Command **"Open narrative chart (character flow)"** / the activity ribbon
+icon — an [xkcd-#657-style](https://xkcd.com/657/) "movie narrative chart",
+generated automatically from the characters already recorded on your scenes:
+every character is a colored line running left to right through the scenes,
+and characters that share a scene have their lines pulled together into one
+bundle there (a clickable capsule that opens the scene, with the cast in its
+tooltip). Hovering a line highlights that character's path and fades the
+rest; the line's name label sits at its right end.
+
+- **Columns**: "Scenes" (default) charts the structure notes themselves;
+  "Events" charts the event thread notes instead — cast is the event's own
+  `characters` field, story time is its `start_year`/`start_month`, and
+  book order is the first scene referencing it via `events` (unreferenced
+  events sort last). The scene view shows who meets on the page, the event
+  view who meets in the story's actual happenings — deliberately not the
+  same thing.
+- **Who counts as present** (scenes mode): `focus_character` +
+  `side_characters`; `characters_mentioned` only if you switch on "Include
+  mentioned".
+- **X axis**: book order (`global_order`, default) or story time
+  (`year`/`month`, undated columns last, book order as tiebreak) — the same
+  toggle distinction matters for non-linear narration, where those two
+  orders genuinely differ.
+- **Min. scenes/events** (default 2) hides characters that appear in fewer
+  columns than that — a single-column character has no "line" to draw, and
+  dropping rare ones keeps the chart readable.
+- Any structure note with characters becomes a column in scenes mode —
+  typically scenes, but chapter-level character data works the same way.
+- Layout: a crossing-minimal storyline layout is NP-hard, so it uses the
+  standard barycenter-sweep heuristic (per-column orderings, scene casts
+  kept contiguous) — hand-rolled SVG, no charting library. It re-renders
+  automatically as metadata changes.
+
+## Export
+
+**"Export structure to CSV"** flattens the whole structure — every section/
+chapter/subchapter/scene, in book order — into one spreadsheet-friendly CSV
+(`<structure folder>/<Book title> - Export.csv`, overwritten on re-run):
+path, type, **level**, title, global order, status, revision, year/month,
+focus/side/mentioned characters, locations, conflicts, motifs, events,
+summary, todos, word/page count, planned length, tags. No "parent" column — rows are
+already in depth-first book order, so a plain numeric level (0 = book, 1 =
+section, … 4 = scene) is enough to reconstruct the hierarchy: a row's
+parent is just the nearest preceding row with a smaller level, same as
+outline/heading depth. That's also what you'd condition-format or
+color-scale on in Excel — the CSV itself can't carry cell colors, only the
+number to key formatting off. Link fields are flattened to
+semicolon-separated names; there's no way back from the CSV into the vault
+(it's a one-way export for filtering/sorting/pivoting the whole book at
+once in Excel/Sheets — not a round-trippable format). CSV rather than a
+real `.xlsx`: it opens directly in any spreadsheet app with no added
+binary-format dependency in the plugin.
+
 ## Editing a note
 
 Frontmatter (YAML) is powerful but unpleasant to hand-edit, especially once
 a note has this many fields. `StructureNoteEditor` (in
 `src/classes/StructureNoteEditor.ts`) is the shared editing UI — summary,
 focus character, status, year/month, locations, motifs + development,
-conflicts + development, side characters, todos, and a "copy metadata from
-parent/previous/next" quick-fill row. It **never** shows or edits body text.
+conflicts + development, events + development, plants + development, side
+characters, todos, and
+a "copy metadata from parent/previous/next" quick-fill row. It **never**
+shows or edits body text.
 It's used in two places:
 
 1. **Inline on the Novel Board** — click a card's header to expand it in
@@ -282,11 +369,19 @@ inside a card until you focus it.
 
 ## Todos
 
-Todos live in each note's frontmatter as `todos: [{id, text, done,
-priority}]` — including a separate private-todo file for anything not tied
-to a scene (`ensurePrivateTodoFile` creates it inside the structure folder).
-Storing them in frontmatter rather than as a body checklist means they
-survive (update-)import untouched, same as any other frontmatter field.
+Todos live in each note's body as a `## Todos` checklist — one
+`- [ ] Text ⏫ ^id` line per todo (checkbox, free text, an optional priority
+marker — ⏫ high / 🔽 low, omitted for the medium default — and a block-id
+anchor used to address that line for done/priority toggling) — including a
+separate private-todo file for anything not tied to a scene
+(`ensurePrivateTodoFile` creates it inside the structure folder). Being part
+of the body's preserved tail (see above), they survive (update-)import
+untouched in every text mode, same as `## Notes`/`## Threads` — and render
+as real, clickable checkboxes instead of raw YAML, which Obsidian's
+Properties panel can't do for a nested array of objects. A file with a
+leftover legacy frontmatter `todos: [...]` array (from before this change)
+gets it migrated into the body automatically, the first time its todos are
+read or edited.
 
 - Add a todo from a card/the metadata editor, or via the quick-add buttons
   in the Todo center.
@@ -331,7 +426,13 @@ document, instead of creating a new tree from scratch.
    (renaming the file to match — vault-wide backlink rewrite, so this only
    happens for *manual* re-pairs, never for already-matched files), and
    shows which unmatched files will be trashed (recoverable, not a hard
-   delete).
+   delete). Matching is first-come-first-served in document order — if a
+   title appears twice (e.g. a heading moved to a new parent in Word by
+   *copying* instead of cutting, leaving the old one behind), the first
+   occurrence claims the existing file and the second gets flagged with an
+   explicit warning instead of silently becoming "create new" — left
+   unresolved, that would produce a same-content duplicate file (title
+   suffixed " 2") rather than the heading actually moving.
 3. A **text-handling** dropdown controls what happens to matched files'
    prose:
    - **Import text from Word** (default) — replaces it with the fresh text.
@@ -340,9 +441,19 @@ document, instead of creating a new tree from scratch.
      *existing* text) refresh.
    - **Discard existing text** — clears it out; word count falls back to
      the Word doc's real length as a reference number instead of 0.
-   - In every mode, the `## Notes` section and all Obsidian-only fields
-     (summary, characters, status, motifs, conflicts, todos, …) are
-     preserved untouched.
+   - In every mode, the `## Notes`/`## Todos`/`## Threads` tail and all
+     Obsidian-only frontmatter fields (summary, characters, status, motifs,
+     conflicts, …) are preserved untouched.
+   - This dropdown only governs *matched* (already-existing) files. A
+     heading with no matching file yet always gets the freshly parsed Word
+     text, in every mode except **Discard** — "Keep" protects *existing*
+     prose, and there's none to protect on a file that doesn't exist yet.
+     This matters when fixing a missing heading that used to leave two
+     scenes' worth of text merged into one file: the newly split-out
+     heading gets its own real text immediately, rather than an empty file
+     next to an old one that still holds the whole merged, now-redundant
+     text — trimming that old file's now-duplicated tail is still a manual
+     step, since "Keep" never re-splits a matched file's existing prose.
 4. Renames, then writes are batched with bounded concurrency (writes are
    independent once every file's final name is decided), and
    `updateStructureMetadata` runs once at the end.
@@ -394,10 +505,14 @@ src/
     characters.ts                  Known-character registry (scanned from
                                     existing links) + role storage (main/
                                     recurring/side/mentioned)
+    locations.ts                   Known-location registry + primary flag
+    narrativeChart.ts              Narrative chart: data collection +
+                                    storyline layout heuristic (pure)
+    exportCsv.ts                   Whole-structure CSV export
     docxImport.ts                  Word import: parse (docx → tree) + write
     updateImport.ts                Update import: match, plan, apply
                                     (rename/update/create/delete)
-    todos.ts                       Frontmatter-based todo storage & actions
+    todos.ts                       Body-checklist todo storage & actions
   classes/
     FolderSuggest.ts                Folder-path autocomplete
     NoteLinkSuggest.ts               Note-title autocomplete for link fields
@@ -410,6 +525,7 @@ src/
     modals/
       StatusModal.ts                Set draft/todo/in_progress/review/revision/done
       CharacterOverviewModal.ts     Every known character + a role toggle group
+      LocationOverviewModal.ts      Every known location + a primary toggle
       ThreadEditorModal.ts          Conflict/motif editor (see "Threads" above)
       DocxPickModal.ts              Choose a .docx file from the vault
       HeadingMappingModal.ts        Map heading levels → structure types
@@ -424,6 +540,7 @@ src/
     views/
       StructureView.ts              Sidebar: novel structure tree
       NovelBoardView.ts              Storyboard: nested card grid
+      NarrativeChartView.ts          xkcd-#657-style character-flow SVG
     settings/
       NovelStructureSettingTab.ts   Plugin settings page
 ```
@@ -452,7 +569,3 @@ wiring only (commands, ribbon icons, view registration, editor actions).
    documented for Reading View; whether it renders exactly as expected in
    Live Preview specifically hasn't been confirmed against a real Obsidian
    instance. The editor-header icons are the safe fallback either way.
-6. **Old-format migration**: notes written before todos moved into
-   frontmatter (they used to be a `## To-Dos` markdown checklist) aren't
-   automatically converted — a one-off migration command could pick that
-   up if there's real data to migrate.

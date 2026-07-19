@@ -1,10 +1,11 @@
 import { App, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../main";
-import { PRIORITY_COLORS, STATUS_TYPES, TodoEntry } from "../types";
+import { PRIORITY_COLORS, STATUS_TYPES } from "../types";
 import { characterCandidateRank } from "../utils/characters";
 import { extractLinkBasename } from "../utils/files";
+import { locationCandidateRank } from "../utils/locations";
 import { getThreadDevelopmentForScene, removeThreadFromScene, threadFieldNames, ThreadKind } from "../utils/threads";
-import { addTodo, nextPriority, setTodoDone, setTodoPriority } from "../utils/todos";
+import { addTodo, nextPriority, readTodosForFile, setTodoDone, setTodoPriority } from "../utils/todos";
 import { addDropdownField, addLinkListField, addTextAreaField, addTextField } from "./FieldBuilders";
 import { ThreadEditorModal } from "./modals/ThreadEditorModal";
 
@@ -81,8 +82,14 @@ export class StructureNoteEditor {
       (v) => save((f) => (f.month = v.trim() ? parseInt(v, 10) : null)),
       { type: "number", min: "1", max: "12", extraClass: "novel-board-field-narrow" }
     );
-    addLinkListField(this.app, row2, "Locations", fm.locations ?? [], anyNoteCandidates, (links) =>
-      save((f) => (f.locations = links))
+    addLinkListField(
+      this.app,
+      row2,
+      "Locations",
+      fm.locations ?? [],
+      anyNoteCandidates,
+      (links) => save((f) => (f.locations = links)),
+      { rank: locationCandidateRank(this.app, this.plugin.settings) }
     );
 
     addLinkListField(
@@ -106,6 +113,8 @@ export class StructureNoteEditor {
 
     this.renderThreadSection(form, fm, "motif");
     this.renderThreadSection(form, fm, "conflict");
+    this.renderThreadSection(form, fm, "event");
+    this.renderThreadSection(form, fm, "plant");
 
     const readonlyInfo = form.createEl("p", {
       text: `${fm.word_count ?? 0} words · ${fm.page_count ?? 0} pages (computed automatically from the text)`,
@@ -113,7 +122,7 @@ export class StructureNoteEditor {
     });
     readonlyInfo.style.opacity = "0.6";
 
-    this.renderTodosSection(form, fm);
+    this.renderTodosSection(form);
 
     return form;
   }
@@ -163,42 +172,43 @@ export class StructureNoteEditor {
     return this.app.metadataCache.getFileCache(file)?.frontmatter?.title || file.basename;
   }
 
-  private renderTodosSection(form: HTMLElement, fm: Record<string, any>) {
+  private renderTodosSection(form: HTMLElement) {
     const section = form.createEl("div", { cls: "novel-board-todos" });
     section.createEl("div", { text: "Todos", cls: "novel-board-field-label" });
 
-    const entries: TodoEntry[] = fm.todos ?? [];
     const list = section.createEl("div", { cls: "novel-board-todo-list" });
-    entries.forEach((entry) => {
-      const row = list.createEl("div", { cls: "novel-board-todo-row" });
-      row.style.borderLeftColor = PRIORITY_COLORS[entry.priority] ?? PRIORITY_COLORS.medium;
+    readTodosForFile(this.app, this.file).then((entries) => {
+      entries.forEach((entry) => {
+        const row = list.createEl("div", { cls: "novel-board-todo-row" });
+        row.style.borderLeftColor = PRIORITY_COLORS[entry.priority] ?? PRIORITY_COLORS.medium;
 
-      const checkbox = row.createEl("input", { type: "checkbox" });
-      checkbox.checked = entry.done;
-      checkbox.onclick = (evt) => evt.stopPropagation();
-      checkbox.onchange = async () => {
-        await setTodoDone(
-          this.app,
-          { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
-          checkbox.checked
-        );
-        this.onChange();
-      };
+        const checkbox = row.createEl("input", { type: "checkbox" });
+        checkbox.checked = entry.done;
+        checkbox.onclick = (evt) => evt.stopPropagation();
+        checkbox.onchange = async () => {
+          await setTodoDone(
+            this.app,
+            { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
+            checkbox.checked
+          );
+          this.onChange();
+        };
 
-      const text = row.createEl("span", { text: entry.text, cls: "novel-board-todo-text" });
-      if (entry.done) text.addClass("is-done");
+        const text = row.createEl("span", { text: entry.text, cls: "novel-board-todo-text" });
+        if (entry.done) text.addClass("is-done");
 
-      const chip = row.createEl("span", { text: entry.priority, cls: "novel-board-todo-priority-chip" });
-      chip.style.color = PRIORITY_COLORS[entry.priority] ?? PRIORITY_COLORS.medium;
-      chip.onclick = async (evt) => {
-        evt.stopPropagation();
-        await setTodoPriority(
-          this.app,
-          { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
-          nextPriority(entry.priority)
-        );
-        this.onChange();
-      };
+        const chip = row.createEl("span", { text: entry.priority, cls: "novel-board-todo-priority-chip" });
+        chip.style.color = PRIORITY_COLORS[entry.priority] ?? PRIORITY_COLORS.medium;
+        chip.onclick = async (evt) => {
+          evt.stopPropagation();
+          await setTodoPriority(
+            this.app,
+            { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
+            nextPriority(entry.priority)
+          );
+          this.onChange();
+        };
+      });
     });
 
     const addRow = section.createEl("div", { cls: "novel-board-todo-add-row" });
@@ -237,7 +247,8 @@ export class StructureNoteEditor {
    * place that does it, instead of a second, parallel inline editor. */
   private renderThreadSection(form: HTMLElement, fm: Record<string, any>, kind: ThreadKind) {
     const { links: linksField } = threadFieldNames(kind);
-    const label = kind === "conflict" ? "Conflicts" : "Motifs";
+    const label =
+      kind === "conflict" ? "Conflicts" : kind === "motif" ? "Motifs" : kind === "event" ? "Events" : "Plants";
 
     const section = form.createEl("div", { cls: "novel-board-conflicts" });
     section.setAttr("data-thread-kind", kind);

@@ -1,8 +1,17 @@
 import { MarkdownView, Notice, Plugin, TFile, debounce } from "obsidian";
-import { DEFAULT_SETTINGS, FrontmatterDisplayMode, NovelStructureSettings, VIEW_TYPE_BOARD, VIEW_TYPE_STRUCTURE } from "./types";
+import {
+  DEFAULT_SETTINGS,
+  FrontmatterDisplayMode,
+  NovelStructureSettings,
+  VIEW_TYPE_BOARD,
+  VIEW_TYPE_NARRATIVE_CHART,
+  VIEW_TYPE_STRUCTURE,
+} from "./types";
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
+import { LocationOverviewModal } from "./classes/modals/LocationOverviewModal";
+import { exportStructureToCsv } from "./utils/exportCsv";
 import { DailySelectionModal } from "./classes/modals/DailySelectionModal";
 import { DocxPickModal } from "./classes/modals/DocxPickModal";
 import { MetadataEditorModal } from "./classes/modals/MetadataEditorModal";
@@ -11,6 +20,7 @@ import { StatusModal } from "./classes/modals/StatusModal";
 import { ThreadEditorModal } from "./classes/modals/ThreadEditorModal";
 import { TodoCenterModal } from "./classes/modals/TodoCenterModal";
 import { NovelStructureSettingTab } from "./classes/settings/NovelStructureSettingTab";
+import { NarrativeChartView } from "./classes/views/NarrativeChartView";
 import { NovelBoardView } from "./classes/views/NovelBoardView";
 import { StructureView } from "./classes/views/StructureView";
 import { splitBody } from "./utils/noteBody";
@@ -125,7 +135,7 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.addCommand({
       id: "novel-structure-open-thread-editor",
-      name: "Open thread editor (conflicts/motifs)",
+      name: "Open thread editor (conflicts/motifs/events/plants)",
       callback: () => {
         const active = this.app.workspace.getActiveFile();
         const sceneContext = active && isStructureFile(this.app, active, this.settings) ? active : undefined;
@@ -158,6 +168,22 @@ export default class NovelStructurePlugin extends Plugin {
       id: "novel-structure-open-character-overview",
       name: "Open character overview",
       callback: () => new CharacterOverviewModal(this.app, this).open(),
+    });
+
+    this.addCommand({
+      id: "novel-structure-open-location-overview",
+      name: "Open location overview",
+      callback: () => new LocationOverviewModal(this.app, this).open(),
+    });
+
+    this.addCommand({
+      id: "novel-structure-export-csv",
+      name: "Export structure to CSV",
+      callback: async () => {
+        const file = await exportStructureToCsv(this.app, this.settings);
+        new Notice(`Exported to "${file.path}".`);
+        this.app.workspace.getLeaf(false).openFile(file);
+      },
     });
 
     // Header icons (view actions) + an inline button bar right next to
@@ -242,6 +268,13 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.registerView(VIEW_TYPE_STRUCTURE, (leaf) => new StructureView(leaf, this));
     this.registerView(VIEW_TYPE_BOARD, (leaf) => new NovelBoardView(leaf, this));
+    this.registerView(VIEW_TYPE_NARRATIVE_CHART, (leaf) => new NarrativeChartView(leaf, this));
+
+    this.addCommand({
+      id: "novel-structure-open-narrative-chart",
+      name: "Open narrative chart (character flow)",
+      callback: () => this.activateNarrativeChartView(),
+    });
 
     this.addCommand({
       id: "novel-structure-open-todo-view",
@@ -303,6 +336,8 @@ export default class NovelStructurePlugin extends Plugin {
     this.addRibbonIcon("list-checks", "Open todo center", () => new TodoCenterModal(this.app, this).open());
     this.addRibbonIcon("layout-grid", "Open novel board", () => this.activateBoardView());
     this.addRibbonIcon("users", "Open character overview", () => new CharacterOverviewModal(this.app, this).open());
+    this.addRibbonIcon("map-pin", "Open location overview", () => new LocationOverviewModal(this.app, this).open());
+    this.addRibbonIcon("activity", "Open narrative chart", () => this.activateNarrativeChartView());
 
     this.addSettingTab(new NovelStructureSettingTab(this.app, this));
   }
@@ -499,7 +534,7 @@ export default class NovelStructurePlugin extends Plugin {
     }
   }
 
-  /** A thread note (Conflict/Motif) opened directly in the normal editor
+  /** A thread note (any ThreadKind) opened directly in the normal editor
    * gets its own single header action to jump into the comfier
    * `ThreadEditorModal` edit view, instead of only being reachable by
    * searching for it from "Open thread editor". */
@@ -539,6 +574,16 @@ export default class NovelStructurePlugin extends Plugin {
     if (!leaf) {
       leaf = workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_BOARD, active: true });
+    }
+    workspace.revealLeaf(leaf);
+  }
+
+  async activateNarrativeChartView() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_NARRATIVE_CHART)[0];
+    if (!leaf) {
+      leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VIEW_TYPE_NARRATIVE_CHART, active: true });
     }
     workspace.revealLeaf(leaf);
   }
