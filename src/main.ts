@@ -67,6 +67,11 @@ const FRONTMATTER_MODE_ICON: Record<FrontmatterDisplayMode, string> = {
   visible: "eye",
 };
 
+// (Prose visibility needs no plugin machinery: non-empty prose is written
+// under a "## Text" heading — see noteBody.ts — so collapsing the scene
+// text is Obsidian's native heading fold, in Reading View and Live Preview
+// alike, remembered per file.)
+
 export default class NovelStructurePlugin extends Plugin {
   settings!: NovelStructureSettings;
 
@@ -392,7 +397,7 @@ export default class NovelStructurePlugin extends Plugin {
 
     const bar = this.inlineBars.get(view);
     if (bar) {
-      bar.querySelectorAll<HTMLElement>(".novel-structure-mode-btn").forEach((btn) => {
+      bar.querySelectorAll<HTMLElement>("[data-mode]").forEach((btn) => {
         btn.toggleClass("is-active", btn.getAttr("data-mode") === mode);
       });
 
@@ -515,6 +520,7 @@ export default class NovelStructurePlugin extends Plugin {
       this.structureActions.set(view, { frontmatterButtons, editDataBtn, conflictBtn });
       this.insertInlineBar(view, file!);
       this.applyFrontmatterVisibility(view);
+      this.maybeApplyDefaultTextFold(view);
     } else if (!shouldShow && existing) {
       Object.values(existing.frontmatterButtons).forEach((btn) => btn.remove());
       existing.editDataBtn.remove();
@@ -531,7 +537,53 @@ export default class NovelStructurePlugin extends Plugin {
       // and keep the header icon/state consistent either way.
       this.insertInlineBar(view, file!);
       this.applyFrontmatterVisibility(view);
+      this.maybeApplyDefaultTextFold(view);
     }
+  }
+
+  // Tracks which file a view last had the default fold applied for, so the
+  // fold is applied once per opened file — not re-applied on every
+  // re-render/metadata change, which would fight a manual unfold.
+  private textFoldApplied = new WeakMap<MarkdownView, string>();
+
+  /** If "collapse Text by default" is on, folds the "## Text" section of
+   * the structure note now open in `view` — once per file-open; unfolding
+   * by hand then sticks until the file is next opened. Uses the same
+   * (semi-public) fold-info API that fold-management community plugins
+   * rely on; if a future Obsidian version changes it, this quietly does
+   * nothing rather than breaking the view. */
+  private maybeApplyDefaultTextFold(view: MarkdownView) {
+    const file = view.file;
+    if (!this.settings.defaultTextFolded || !file) return;
+    if (this.textFoldApplied.get(view) === file.path) return;
+    this.textFoldApplied.set(view, file.path);
+
+    const headings = this.app.metadataCache.getFileCache(file)?.headings ?? [];
+    const textHeading = headings.find((h) => h.level === 2 && h.heading.trim() === "Text");
+    if (!textHeading) return;
+    const from = textHeading.position.start.line;
+    const next = headings.find((h) => h.position.start.line > from && h.level <= 2);
+
+    // Small delay so the editor/preview DOM for the freshly opened file
+    // exists before folds are applied to it.
+    window.setTimeout(async () => {
+      if (view.file?.path !== file.path) return;
+      try {
+        const content = await this.app.vault.cachedRead(file);
+        const lines = content.split("\n").length;
+        const to = next ? next.position.start.line - 1 : lines - 1;
+        const mode = view.currentMode as unknown as {
+          getFoldInfo?: () => { folds: { from: number; to: number }[]; lines: number } | null;
+          applyFoldInfo?: (info: { folds: { from: number; to: number }[]; lines: number }) => void;
+        };
+        if (!mode?.applyFoldInfo) return;
+        const current = mode.getFoldInfo?.() ?? { folds: [], lines };
+        if (current.folds.some((f) => f.from === from)) return; // already folded
+        mode.applyFoldInfo({ folds: [...current.folds, { from, to }], lines });
+      } catch {
+        // Fold API unavailable/changed — leave the note unfolded.
+      }
+    }, 100);
   }
 
   /** A thread note (any ThreadKind) opened directly in the normal editor

@@ -2,7 +2,7 @@ import { App, Notice, TFile } from "obsidian";
 import type NovelStructurePlugin from "../main";
 import { Priority, PRIORITY_ORDER, TodoEntry, TodoItem } from "../types";
 import { isStructureFile } from "./files";
-import { generateTodoId, readTodos, splitFrontmatterAndBody, writeTodos } from "./noteBody";
+import { generateTodoId, readTodos, splitFrontmatterAndBody, todosNeedRewrite, writeTodos } from "./noteBody";
 
 // ---------------------------------------------------------------------------
 // Todos live in each note's body as a "## Todos" checklist (see noteBody.ts)
@@ -52,11 +52,25 @@ async function migrateLegacyTodos(app: App, file: TFile): Promise<void> {
 }
 
 /** Reads one file's todos out of its body, migrating any legacy frontmatter
- * todos into it first. */
+ * todos into it first. If the section isn't canonical yet (hand-typed lines
+ * without a `^id` anchor, legacy emoji markers, surrogate debris — see
+ * todosNeedRewrite), it's normalized on disk right here, so the ids this
+ * returns are guaranteed to be persisted and every entry stays addressable
+ * for later done/priority/delete actions. Reads never write again once a
+ * section is canonical. */
 export async function readTodosForFile(app: App, file: TFile): Promise<TodoEntry[]> {
   await migrateLegacyTodos(app, file);
   const content = await app.vault.read(file);
-  return readTodos(splitFrontmatterAndBody(content).body);
+  const body = splitFrontmatterAndBody(content).body;
+  let entries = readTodos(body);
+  if (todosNeedRewrite(body)) {
+    await app.vault.process(file, (data) => {
+      const split = splitFrontmatterAndBody(data);
+      entries = readTodos(split.body);
+      return split.frontmatterBlock + writeTodos(split.body, entries);
+    });
+  }
+  return entries;
 }
 
 /** Reads every note's body "## Todos" section (structure files + the private todo file). */
@@ -124,6 +138,16 @@ export async function setTodoPriority(app: App, item: TodoItem, newPriority: Pri
 export function nextPriority(current: Priority): Priority {
   const idx = PRIORITY_ORDER.indexOf(current);
   return PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length];
+}
+
+/** Removes one todo line from a note's body "## Todos" section. */
+export async function removeTodo(app: App, file: TFile, id: string): Promise<void> {
+  await migrateLegacyTodos(app, file);
+  await app.vault.process(file, (data) => {
+    const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
+    const entries = readTodos(body).filter((e) => e.id !== id);
+    return frontmatterBlock + writeTodos(body, entries);
+  });
 }
 
 /** Appends a new todo to a note's body "## Todos" section. */

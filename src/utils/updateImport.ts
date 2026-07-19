@@ -8,9 +8,12 @@ import { calculatePages, countWords } from "./text";
 
 /**
  * - "import": matched files' prose is replaced with the freshly parsed Word text (default).
- * - "keep": prose is left exactly as-is; only structural/frontmatter fields refresh
- *   (word/page count recomputed from the *existing* prose, not the Word doc).
- * - "discard": prose is cleared out entirely (0 words).
+ * - "keep": prose is left exactly as-is; only structural/frontmatter fields refresh.
+ * - "discard": prose is cleared out entirely.
+ * Word/page count always comes from the freshly parsed Word doc in every
+ * mode — the Word document is the manuscript's source of truth, so its
+ * length is the reference number even when its prose isn't (or no longer is)
+ * mirrored into the note body.
  * In all three modes the "## Notes" section (see noteBody.ts) is preserved verbatim,
  * and new files (nodes with no matching existing file) get the Word text unless the
  * mode is "discard" — "keep" doesn't mean anything for a file that doesn't exist yet.
@@ -208,11 +211,14 @@ export async function applyUpdateImport(
         const { prose: oldProse, tail } = splitBody(match ? match[2] : "");
 
         const newProse = textMode === "import" ? entry.contentText : textMode === "keep" ? oldProse : "";
-        // Word count tracks the real prose when there is any; when the body ends up
-        // textless (discard, or "keep" on a file that never had text), fall back to
-        // the freshly parsed Word-doc length as a fixed reference instead of 0 — the
-        // live updater in main.ts leaves it alone as long as the body stays empty.
-        const wordCount = newProse.trim() ? countWords(newProse) : countWords(entry.contentText);
+        // Word count always tracks the freshly parsed Word doc, in every text
+        // mode — the Word document is the manuscript's source of truth, so its
+        // length is the real reference number whether or not its prose is
+        // mirrored into this note's body ("keep"/"discard" included). Note the
+        // live updater in main.ts recomputes from the *body* on later edits
+        // whenever the body has prose, so on kept non-empty bodies this value
+        // holds only until the note is next edited.
+        const wordCount = countWords(entry.contentText);
         const pageCount = calculatePages(wordCount, settings.wordsPerPage);
 
         fm.type = entry.node.type;
@@ -234,7 +240,7 @@ export async function applyUpdateImport(
       // hand instead of retyping everything). "discard" still means no text
       // at all, full stop — that's an explicit choice, not a gap to close.
       const newProse = textMode === "discard" ? "" : entry.contentText;
-      // Same fallback as above: word count is always at least the Word-doc's real length.
+      // Same as matched files: word count is the Word-doc's real length.
       const wordCount = countWords(entry.contentText);
       const pageCount = calculatePages(wordCount, settings.wordsPerPage);
       const frontmatter = buildStructureFrontmatter({

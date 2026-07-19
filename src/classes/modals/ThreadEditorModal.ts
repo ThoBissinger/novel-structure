@@ -19,7 +19,14 @@ import {
   ThreadScope,
   ThreadStatus,
 } from "../../utils/threads";
-import { addBulletListField, addDropdownField, addLinkListField, addTextAreaField, addTextField } from "../FieldBuilders";
+import {
+  addBulletListField,
+  addDropdownField,
+  addLinkListField,
+  addTextAreaField,
+  addTextField,
+  renderLinkifiedText,
+} from "../FieldBuilders";
 import { NoteLinkSuggest } from "../NoteLinkSuggest";
 
 // ---------------------------------------------------------------------------
@@ -223,6 +230,7 @@ export class ThreadEditorModal extends Modal {
       (links) => (this.fields.characters = links),
       { rank: characterCandidateRank(this.app, this.plugin.settings) }
     );
+    this.renderSourcesField(form);
     this.renderEventFields(form);
 
     if (this.sceneContext) {
@@ -249,6 +257,23 @@ export class ThreadEditorModal extends Modal {
       this.newDevText = "";
       this.render();
     };
+  }
+
+  /** Archive material / secondary literature backing this thread, as plain
+   * [[links]] to wherever those notes live in the vault — shown for every
+   * kind. Sources for one *specific* development step don't go here: drop
+   * the [[link]] straight into that development bullet instead (it stays
+   * clickable in the note body, the DataviewJS timeline, and every
+   * timeline/preview in this plugin's own UI). */
+  private renderSourcesField(form: HTMLElement) {
+    addLinkListField(
+      this.app,
+      form,
+      "Sources",
+      this.fields.sources,
+      () => this.app.vault.getMarkdownFiles(),
+      (links) => (this.fields.sources = links)
+    );
   }
 
   /** Event-only fields (see ThreadFields) — where and when it happened.
@@ -347,6 +372,7 @@ export class ThreadEditorModal extends Modal {
       (links) => (this.fields.characters = links),
       { rank: characterCandidateRank(this.app, this.plugin.settings) }
     );
+    this.renderSourcesField(form);
     this.renderEventFields(form);
 
     const saveBtn = form.createEl("button", { text: "Save", cls: "novel-board-copyfrom-btn" });
@@ -422,7 +448,12 @@ export class ThreadEditorModal extends Modal {
         this.close();
         this.app.workspace.getLeaf(false).openFile(entry.file);
       };
-      row.createSpan({ text: entry.development || "(no text yet)", cls: "novel-board-readonly" });
+      const dev = row.createSpan({ cls: "novel-board-readonly" });
+      if (entry.development) {
+        renderLinkifiedText(this.app, dev, entry.development, entry.file.path, () => this.close());
+      } else {
+        dev.setText("(no text yet)");
+      }
     });
   }
 

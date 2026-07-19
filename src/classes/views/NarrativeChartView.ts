@@ -129,16 +129,25 @@ export class NarrativeChartView extends ItemView {
       };
     });
 
-    if (this.options.mode === "scenes") {
-      const mentionedBtn = bar.createEl("button", {
-        text: "Include mentioned",
-        cls: "novel-structure-inline-btn novel-structure-mode-btn",
-      });
-      if (this.options.includeMentioned) mentionedBtn.addClass("is-active");
-      mentionedBtn.onclick = () => {
-        this.options.includeMentioned = !this.options.includeMentioned;
+    const toggle = (label: string, isActive: boolean, flip: () => void) => {
+      const btn = bar.createEl("button", { text: label, cls: "novel-structure-inline-btn novel-structure-mode-btn" });
+      if (isActive) btn.addClass("is-active");
+      btn.onclick = () => {
+        flip();
         this.render();
       };
+    };
+
+    if (this.options.mode === "scenes") {
+      toggle("Focus only", this.options.focusOnly, () => (this.options.focusOnly = !this.options.focusOnly));
+      // Side/mentioned tiers are moot while "Focus only" is on, so the
+      // mentioned toggle disappears with it instead of sitting there dead.
+      if (!this.options.focusOnly) {
+        toggle("Include mentioned", this.options.includeMentioned, () => {
+          this.options.includeMentioned = !this.options.includeMentioned;
+        });
+      }
+      toggle("Only with text", this.options.withTextOnly, () => (this.options.withTextOnly = !this.options.withTextOnly));
     }
 
     const minWrap = bar.createDiv({ cls: "novel-narrative-min-wrap" });
@@ -148,6 +157,16 @@ export class NarrativeChartView extends ItemView {
     minInput.onchange = () => {
       const v = parseInt(minInput.value, 10);
       this.options.minAppearances = Number.isFinite(v) && v >= 1 ? v : 1;
+      this.render();
+    };
+
+    const topWrap = bar.createDiv({ cls: "novel-narrative-min-wrap" });
+    topWrap.createSpan({ text: "Top:" });
+    const topInput = topWrap.createEl("input", { type: "number", attr: { min: "1", max: "99", placeholder: "all" } });
+    topInput.value = this.options.topCharacters != null ? String(this.options.topCharacters) : "";
+    topInput.onchange = () => {
+      const v = parseInt(topInput.value, 10);
+      this.options.topCharacters = Number.isFinite(v) && v >= 1 ? v : null;
       this.render();
     };
   }

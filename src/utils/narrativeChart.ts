@@ -34,25 +34,32 @@ export interface ChartOptions {
   mode: ChartMode;
   axis: ChartAxis;
   includeMentioned: boolean; // scenes mode only — events have no "mentioned" tier
+  focusOnly: boolean; // scenes mode only: count only focus_character as present (overrides includeMentioned)
+  withTextOnly: boolean; // scenes mode only: drop columns with word_count 0 (pure heading files, e.g. chapters)
   minAppearances: number; // characters below this many columns are dropped (1-column characters have no "line")
+  topCharacters: number | null; // keep only the N most-appearing characters (null = all)
 }
 
 export const DEFAULT_CHART_OPTIONS: ChartOptions = {
   mode: "scenes",
   axis: "book",
   includeMentioned: false,
+  focusOnly: false,
+  withTextOnly: true,
   minAppearances: 2,
+  topCharacters: null,
 };
 
-function presentCharacters(fm: Record<string, unknown>, includeMentioned: boolean): string[] {
+function presentCharacters(fm: Record<string, unknown>, opts: ChartOptions): string[] {
   const out: string[] = [];
   const push = (link: unknown) => {
     const name = extractLinkBasename(link as string);
     if (name && !out.includes(name)) out.push(name);
   };
   push(fm.focus_character);
+  if (opts.focusOnly) return out;
   ((fm.side_characters as string[]) ?? []).forEach(push);
-  if (includeMentioned) ((fm.characters_mentioned as string[]) ?? []).forEach(push);
+  if (opts.includeMentioned) ((fm.characters_mentioned as string[]) ?? []).forEach(push);
   return out;
 }
 
@@ -66,12 +73,17 @@ function collectSceneColumns(app: App, settings: NovelStructureSettings, opts: C
   return app.vault
     .getFiles()
     .filter((f) => isStructureFile(app, f, settings))
+    .filter((f) => {
+      if (!opts.withTextOnly) return true;
+      const fm = app.metadataCache.getFileCache(f)?.frontmatter;
+      return ((fm?.word_count as number) ?? 0) > 0;
+    })
     .map((file) => {
       const fm = app.metadataCache.getFileCache(file)?.frontmatter ?? {};
       return {
         file,
         title: (fm.title as string) || file.basename,
-        cast: presentCharacters(fm, opts.includeMentioned),
+        cast: presentCharacters(fm, opts),
         order: (fm.global_order as number) ?? 0,
         year: (fm.year as number) ?? null,
         month: (fm.month as number) ?? null,
@@ -138,11 +150,25 @@ export function collectChartColumns(app: App, settings: NovelStructureSettings, 
   const appearances = new Map<string, number>();
   raw.forEach((c) => c.cast.forEach((name) => appearances.set(name, (appearances.get(name) ?? 0) + 1)));
 
+  // "Top N" keeps only the N most-appearing characters (ties broken by
+  // first appearance in column order, which Map insertion order gives us).
+  let kept: Set<string> | null = null;
+  if (opts.topCharacters != null && opts.topCharacters >= 1) {
+    kept = new Set(
+      [...appearances.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, opts.topCharacters)
+        .map(([name]) => name)
+    );
+  }
+
   return raw
     .map(({ file, title, cast }) => ({
       file,
       title,
-      cast: cast.filter((name) => (appearances.get(name) ?? 0) >= Math.max(1, opts.minAppearances)),
+      cast: cast.filter(
+        (name) => (appearances.get(name) ?? 0) >= Math.max(1, opts.minAppearances) && (!kept || kept.has(name))
+      ),
     }))
     .filter((c) => c.cast.length > 0);
 }

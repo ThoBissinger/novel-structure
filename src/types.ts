@@ -70,6 +70,7 @@ export interface NovelStructureSettings {
   includeTypeInFileName: boolean; // prefix new file names with their type label, e.g. "Scene - Title"
   boardVisibleDepth: StructureType; // deepest level shown as a card grid by default on the novel board; anything deeper needs focusing a card to reveal
   defaultFrontmatterDisplay: FrontmatterDisplayMode; // starting point when opening a structure note; overridable per-note via the toggle button
+  defaultTextFolded: boolean; // start with the "## Text" section collapsed when opening a structure note (unfold stays until the file is next opened)
   structureViewShowTypeLabels: boolean; // prefix each row in the structure view with its type label, e.g. "Chapter - Title"
   // Manually curated main/side classification, keyed by file path (not
   // basename — a character note can live anywhere in the vault, not just
@@ -107,6 +108,7 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   includeTypeInFileName: true,
   boardVisibleDepth: "subchapter",
   defaultFrontmatterDisplay: "hidden",
+  defaultTextFolded: false,
   structureViewShowTypeLabels: true,
   characterRoles: {},
   primaryLocations: [],

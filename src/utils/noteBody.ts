@@ -2,7 +2,9 @@ import { TodoEntry } from "../types";
 
 // ---------------------------------------------------------------------------
 // Structure notes split their body into two zones:
-//  - prose: the imported/written text itself.
+//  - prose: the imported/written text itself, headed by "## Text" (see
+//    below) so it's a foldable section rather than loose text at the top of
+//    the file.
 //  - a "tail" made of one or more fixed headings the author/plugin add
 //    directly in Obsidian: "## Notes" (free-form remarks, never touched by
 //    (update-)import in any text mode), "## Todos" (a checklist, see
@@ -12,8 +14,19 @@ import { TodoEntry } from "../types";
 //    used.
 // splitBody()/joinBody() are the only place that convention is encoded, so
 // every writer (fresh import, update import) stays consistent automatically.
+//
+// "## Text": non-empty prose is written under this heading, which makes
+// hiding the scene text a native Obsidian gesture — collapse the heading
+// (works in Reading View and Live Preview alike, remembered per file) —
+// instead of a plugin-side visibility hack. The heading is part of the
+// *convention*, not the prose: splitBody() strips it, so word counts and
+// every consumer see pure prose, and joinBody() re-adds it. A leading
+// heading line in the prose itself (e.g. the "# Private Todos" H1 in the
+// private todo file) suppresses it — sticking "## Text" above an existing
+// title would be wrong.
 // ---------------------------------------------------------------------------
 
+export const TEXT_HEADING = "## Text";
 export const NOTES_HEADING = "## Notes";
 export const TODOS_HEADING = "## Todos";
 export const THREADS_HEADING = "## Threads";
@@ -21,9 +34,11 @@ const TAIL_HEADINGS = [NOTES_HEADING, TODOS_HEADING, THREADS_HEADING];
 
 /** Splits a body into its prose and its tail (verbatim, heading(s)
  * included) — the tail starts at the first line matching one of
- * TAIL_HEADINGS. A body with neither heading (e.g. a file written before
- * this convention existed) is treated as pure prose with no tail — there's
- * no way to retroactively tell apart mixed-in remarks from prose. */
+ * TAIL_HEADINGS. A leading "## Text" heading belongs to the convention,
+ * not the prose, and is stripped (joinBody re-adds it). A body with no
+ * tail heading (e.g. a file written before this convention existed) is
+ * treated as pure prose with no tail — there's no way to retroactively
+ * tell apart mixed-in remarks from prose. */
 export function splitBody(body: string): { prose: string; tail: string } {
   const lines = body.split("\n");
   let idx = -1;
@@ -33,19 +48,30 @@ export function splitBody(body: string): { prose: string; tail: string } {
       break;
     }
   }
-  if (idx === -1) return { prose: body.trimEnd(), tail: "" };
+  const proseLines = idx === -1 ? lines : lines.slice(0, idx);
+  const firstContent = proseLines.findIndex((l) => l.trim() !== "");
+  if (firstContent !== -1 && proseLines[firstContent].trim() === TEXT_HEADING) {
+    proseLines.splice(firstContent, 1);
+  }
   return {
-    prose: lines.slice(0, idx).join("\n").trimEnd(),
-    tail: lines.slice(idx).join("\n").trimEnd(),
+    prose: proseLines.join("\n").trim(),
+    tail: idx === -1 ? "" : lines.slice(idx).join("\n").trimEnd(),
   };
 }
 
-/** Reassembles prose + tail into a body, always scaffolding the "## Notes"
- * heading (even when empty) so the convention stays discoverable. */
+/** Reassembles prose + tail into a body: non-empty prose goes under a
+ * "## Text" heading (unless it starts with its own heading line — e.g. the
+ * private todo file's H1 title), and the "## Notes"/"## Todos" headings are
+ * always scaffolded (even when empty) so the convention stays discoverable
+ * — and so a checklist item can be typed by hand right away without first
+ * creating the heading. */
 export function joinBody(prose: string, tail: string): string {
-  const tailBlock = tail.trim() || NOTES_HEADING;
-  const proseBlock = prose.trim();
-  return proseBlock ? `${proseBlock}\n\n${tailBlock}\n` : `${tailBlock}\n`;
+  const tailBlock = tail.trim() || `${NOTES_HEADING}\n\n${TODOS_HEADING}`;
+  const proseText = prose.trim();
+  if (!proseText) return `${tailBlock}\n`;
+  const startsWithHeading = /^#{1,6}\s/.test(proseText);
+  const proseBlock = startsWithHeading ? proseText : `${TEXT_HEADING}\n\n${proseText}`;
+  return `${proseBlock}\n\n${tailBlock}\n`;
 }
 
 const FRONTMATTER_RE = /^(---\n[\s\S]*?\n---\n?)([\s\S]*)$/;
@@ -149,17 +175,24 @@ function withThreadsSection(body: string, entries: Map<string, string>): string 
 
 // ---------------------------------------------------------------------------
 // "## Todos" section: a plain Markdown checklist, one line per todo —
-// `- [ ] Text ⏫ ^id` (checkbox, free text, an optional priority marker —
-// ⏫ high / 🔽 low, omitted for the medium default — and a block-id anchor
-// used to address a specific entry for done/priority toggling without
-// relying on line position). Lives in the body instead of frontmatter for
-// the same reason thread development text does: it renders as real,
-// clickable Obsidian checkboxes instead of raw YAML, and — being part of
-// the tail — survives (update-)import verbatim in every text mode, same as
+// `- [ ] Text (high) ^id` (checkbox, free text, an optional priority marker
+// — "(high)" / "(low)", omitted for the medium default — and a block-id
+// anchor used to address a specific entry for done/priority toggling
+// without relying on line position). Plain ASCII markers on purpose: the
+// original emoji markers (⏫/🔽) hit a classic UTF-16 trap — 🔽 is an
+// astral-plane character (two code units), so trimming it with a
+// one-unit slice left a lone surrogate behind, which then accumulated a
+// fresh marker per priority cycle. parseTodoLine still recognizes the
+// legacy emoji (and scrubs any stranded surrogates they left) so old lines
+// heal on their next rewrite.
+// The section lives in the body instead of frontmatter for the same reason
+// thread development text does: it renders as real, clickable Obsidian
+// checkboxes instead of raw YAML, and — being part of the tail — survives
+// (update-)import verbatim in every text mode, same as
 // "## Notes"/"## Threads".
 // ---------------------------------------------------------------------------
 
-const TODO_PRIORITY_MARKER: Record<TodoEntry["priority"], string> = { high: " ⏫", medium: "", low: " 🔽" };
+const TODO_PRIORITY_MARKER: Record<TodoEntry["priority"], string> = { high: " (high)", medium: "", low: " (low)" };
 const TODO_LINE_RE = /^-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
 
 /** Generates a short, unique-enough id to address one todo line for
@@ -168,23 +201,76 @@ export function generateTodoId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Strips priority markers (current and legacy) plus any surrogate/replace-
+ * ment-char debris off the end of a todo's text. The outermost (rightmost)
+ * recognized marker is the newest, so the first one found wins; older ones
+ * underneath are stripped without changing the priority again. */
+function stripPriorityMarkers(raw: string): { text: string; priority: TodoEntry["priority"] } {
+  let text = raw;
+  let priority: TodoEntry["priority"] = "medium";
+  let priorityFound = false;
+  const take = (p: TodoEntry["priority"], len: number) => {
+    if (!priorityFound) {
+      priority = p;
+      priorityFound = true;
+    }
+    text = text.slice(0, -len);
+  };
+
+  for (;;) {
+    text = text.trimEnd();
+    if (text.endsWith("(high)")) take("high", 6);
+    else if (text.endsWith("(low)")) take("low", 5);
+    else if (text.endsWith("⏫")) take("high", 1); // BMP char, one code unit
+    else if (text.endsWith("🔽")) take("low", 2); // astral char, two code units
+    else {
+      const last = text.charCodeAt(text.length - 1);
+      const prev = text.length >= 2 ? text.charCodeAt(text.length - 2) : 0;
+      // Lone surrogate halves / replacement chars left behind by the old
+      // one-unit-slice bug — plain garbage, drop without a priority. A low
+      // surrogate preceded by a high one is a *valid* astral character
+      // (e.g. a real emoji the author typed) and stays put.
+      const loneHigh = last >= 0xd800 && last <= 0xdbff;
+      const loneLow = last >= 0xdc00 && last <= 0xdfff && !(prev >= 0xd800 && prev <= 0xdbff);
+      if (loneHigh || loneLow || last === 0xfffd) text = text.slice(0, -1);
+      else break;
+    }
+  }
+  return { text, priority };
+}
+
 function parseTodoLine(line: string): TodoEntry | null {
   const m = line.match(TODO_LINE_RE);
   if (!m) return null;
   const done = m[1].toLowerCase() === "x";
-  let text = m[2].trim();
-  let priority: TodoEntry["priority"] = "medium";
-  if (text.endsWith("⏫")) {
-    priority = "high";
-    text = text.slice(0, -1).trim();
-  } else if (text.endsWith("🔽")) {
-    priority = "low";
-    text = text.slice(0, -1).trim();
-  }
+  const { text, priority } = stripPriorityMarkers(m[2].trim());
   // A hand-typed checklist line (no plugin-added `^id` yet) still needs one
   // to be addressable — assign it lazily on first read.
   const id = m[3] ?? generateTodoId();
   return { id, text, done, priority };
+}
+
+/** True if the "## Todos" section needs a normalizing rewrite before its
+ * entries can be addressed reliably: a line without a `^id` anchor (its
+ * freshly generated id only exists in memory until written), or leftover
+ * legacy emoji markers / surrogate debris (see stripPriorityMarkers).
+ * Checked as a round-trip: a line that doesn't reserialize to itself
+ * (given its own anchor id) isn't canonical yet. Once rewritten, every
+ * line round-trips, so this stays false and reads never write again. */
+export function todosNeedRewrite(body: string): boolean {
+  const { tail } = splitBody(body);
+  const tailLines = tail.split("\n");
+  const range = findSectionRange(tailLines, TODOS_HEADING);
+  if (!range) return false;
+  for (let i = range.start + 1; i < range.end; i++) {
+    const line = tailLines[i];
+    if (!line.trim()) continue;
+    const entry = parseTodoLine(line);
+    if (!entry) continue;
+    if (!/\^[a-zA-Z0-9-]+\s*$/.test(line)) return true; // in-memory id, not persisted yet
+    if (serializeTodoLine(entry) !== line) return true; // legacy markers/debris/odd spacing
+  }
+  return false;
 }
 
 function serializeTodoLine(entry: TodoEntry): string {
@@ -206,16 +292,17 @@ export function readTodos(body: string): TodoEntry[] {
 }
 
 /** Writes (replacing wholesale) a structure note's "## Todos" section,
- * leaving prose, "## Notes" and "## Threads" untouched. */
+ * leaving prose, "## Notes" and "## Threads" untouched. The heading stays
+ * even with zero entries (same scaffolding idea as "## Notes"), so
+ * deleting the last todo doesn't remove the place to type the next one. */
 export function writeTodos(body: string, entries: TodoEntry[]): string {
   const { prose, tail } = splitBody(body);
   const tailLines = tail.split("\n");
   const range = findSectionRange(tailLines, TODOS_HEADING);
   const rest = range ? [...tailLines.slice(0, range.start), ...tailLines.slice(range.end)].join("\n").trim() : tail.trim();
 
-  const todosBlock = entries.length ? [TODOS_HEADING, ...entries.map(serializeTodoLine)].join("\n") : "";
-  const newTailParts = [rest || NOTES_HEADING];
-  if (todosBlock) newTailParts.push(todosBlock);
+  const todosBlock = [TODOS_HEADING, ...entries.map(serializeTodoLine)].join("\n");
+  const newTailParts = [rest || NOTES_HEADING, todosBlock];
   return joinBody(prose, newTailParts.join("\n\n"));
 }
 

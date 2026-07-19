@@ -64,8 +64,8 @@ export class ImportMatchModal extends Modal {
   private updateTextModeWarning() {
     const messages: Record<UpdateTextMode, string> = {
       import: "⚠️ Matched files get their prose text replaced with the freshly imported Word version.",
-      keep: "ℹ️ Prose text is left exactly as-is on matched files. Newly created files (headings with no match below) still get the Word text — there's no existing prose of yours to protect on those.",
-      discard: "⚠️ Prose text on every matched file is cleared out (word count → 0), and newly created files start empty too. This cannot be undone from here.",
+      keep: "ℹ️ Prose text is left exactly as-is on matched files; word/page counts still update from the Word document. Newly created files (headings with no match below) still get the Word text — there's no existing prose of yours to protect on those.",
+      discard: "⚠️ Prose text on every matched file is cleared out, and newly created files start empty too (word/page counts still reflect the Word document). This cannot be undone from here.",
     };
     this.textModeWarningEl.setText(messages[this.textMode]);
     this.textModeWarningEl.style.color =

@@ -5,8 +5,8 @@ import { characterCandidateRank } from "../utils/characters";
 import { extractLinkBasename } from "../utils/files";
 import { locationCandidateRank } from "../utils/locations";
 import { getThreadDevelopmentForScene, removeThreadFromScene, threadFieldNames, ThreadKind } from "../utils/threads";
-import { addTodo, nextPriority, readTodosForFile, setTodoDone, setTodoPriority } from "../utils/todos";
-import { addDropdownField, addLinkListField, addTextAreaField, addTextField } from "./FieldBuilders";
+import { addTodo, nextPriority, readTodosForFile, removeTodo, setTodoDone, setTodoPriority } from "../utils/todos";
+import { addDropdownField, addLinkListField, addTextAreaField, addTextField, renderLinkifiedText } from "./FieldBuilders";
 import { ThreadEditorModal } from "./modals/ThreadEditorModal";
 
 // ---------------------------------------------------------------------------
@@ -208,6 +208,14 @@ export class StructureNoteEditor {
           );
           this.onChange();
         };
+
+        const removeBtn = row.createEl("span", { text: "×", cls: "novel-board-chip-remove" });
+        removeBtn.setAttr("aria-label", "Delete todo");
+        removeBtn.onclick = async (evt) => {
+          evt.stopPropagation();
+          await removeTodo(this.app, this.file, entry.id);
+          this.onChange();
+        };
       });
     });
 
@@ -288,7 +296,10 @@ export class StructureNoteEditor {
 
       const devPreview = row.createEl("span", { cls: "novel-board-conflict-dev-preview novel-board-readonly" });
       if (basename) {
-        getThreadDevelopmentForScene(this.app, this.file, basename).then((text) => devPreview.setText(text || "(no text yet)"));
+        getThreadDevelopmentForScene(this.app, this.file, basename).then((text) => {
+          if (text) renderLinkifiedText(this.app, devPreview, text, this.file.path);
+          else devPreview.setText("(no text yet)");
+        });
       }
     });
   }

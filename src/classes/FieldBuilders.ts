@@ -220,3 +220,37 @@ export function addBulletListField(
     commit();
   };
 }
+
+/** Renders `text` into `parent` with every `[[link]]`/`[[link|alias]]`
+ * turned into a clickable link that opens the target note (resolved
+ * relative to `sourcePath`), leaving everything between them plain text —
+ * so e.g. a source reference dropped into a development bullet stays
+ * followable from every UI that displays that text, not just the note
+ * body. `onNavigate` runs before opening (e.g. to close the modal). */
+export function renderLinkifiedText(
+  app: App,
+  parent: HTMLElement,
+  text: string,
+  sourcePath: string,
+  onNavigate?: () => void
+): void {
+  const LINK_RE = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  let cursor = 0;
+  for (const match of text.matchAll(LINK_RE)) {
+    const idx = match.index ?? 0;
+    if (idx > cursor) parent.appendText(text.slice(cursor, idx));
+    const target = match[1];
+    const label = match[2] || target;
+    const a = parent.createEl("a", { text: label, cls: "novel-structure-info-link", href: "#" });
+    a.onclick = (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const file = app.metadataCache.getFirstLinkpathDest(target, sourcePath);
+      if (!file) return;
+      onNavigate?.();
+      app.workspace.getLeaf(false).openFile(file);
+    };
+    cursor = idx + match[0].length;
+  }
+  if (cursor < text.length) parent.appendText(text.slice(cursor));
+}

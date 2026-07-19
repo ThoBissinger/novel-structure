@@ -176,6 +176,7 @@ export interface ThreadFields {
   title: string;
   summary: string;
   characters: string[]; // [[links]] — parties involved (conflict) / who carries it (motif) / who's there (event)
+  sources: string[]; // [[links]] — archive material / secondary literature backing this thread
   scope: ThreadScope | ""; // conflict-only, see ThreadEditorModal
   status: ThreadStatus;
   // Event-only (see ThreadEditorModal): where and when it happened. Plain
@@ -194,6 +195,7 @@ export function emptyThreadFields(): ThreadFields {
     title: "",
     summary: "",
     characters: [],
+    sources: [],
     scope: "",
     status: "open",
     locations: [],
@@ -212,6 +214,7 @@ export function readThreadFields(app: App, file: TFile): ThreadFields {
     title: fm.title || file.basename,
     summary: fm.summary ?? "",
     characters: fm.characters ?? [],
+    sources: fm.sources ?? [],
     scope: THREAD_SCOPES.includes(scope as ThreadScope) ? (scope as ThreadScope) : "",
     status: (fm.thread_status as ThreadStatus) ?? "open",
     locations: fm.locations ?? [],
@@ -227,6 +230,7 @@ export async function saveThreadFields(app: App, file: TFile, fields: ThreadFiel
     fm.title = fields.title;
     fm.summary = fields.summary;
     fm.characters = fields.characters;
+    fm.sources = fields.sources;
     fm.scope = fields.scope;
     fm.thread_status = fields.status;
     fm.locations = fields.locations;
@@ -388,6 +392,7 @@ function buildThreadFrontmatter(kind: ThreadKind, fields: ThreadFields): string 
     `title: "${escapeYamlString(fields.title)}"`,
     `summary: "${escapeYamlString(fields.summary)}"`,
     yamlStringList("characters", fields.characters),
+    yamlStringList("sources", fields.sources),
     `scope: ${fields.scope}`,
     `thread_status: ${fields.status}`,
     yamlStringList("locations", fields.locations),

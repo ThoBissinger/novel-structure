@@ -72,6 +72,19 @@ export class NovelStructureSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('Collapse "## Text" by default')
+      .setDesc(
+        "Open every structure note with its Text section folded (all files in this project). " +
+          "Unfolding by hand sticks until the file is next opened."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.defaultTextFolded).onChange(async (v) => {
+          this.plugin.settings.defaultTextFolded = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Show type labels in structure view")
       .setDesc('On: rows read "Chapter - Title". Off: just "Title".')
       .addToggle((toggle) =>

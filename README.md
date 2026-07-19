@@ -100,13 +100,18 @@ subsections: []         # auto: this novel's top-level sections
 - You're not meant to hand-edit most of this as raw YAML day to day — see
   "Editing a note" below for the actual editor UI.
 
-## The note body: prose vs. "## Notes" / "## Todos" / "## Threads"
+## The note body: "## Text" vs. "## Notes" / "## Todos" / "## Threads"
 
 A structure note's body is split into two zones (see `src/utils/noteBody.ts`):
 
 - Everything before the first `## Notes`, `## Todos` or `## Threads` heading
   is **prose** — the actual scene/chapter text, whatever (update-)import
-  writes.
+  writes. Non-empty prose sits under a **`## Text`** heading (added by
+  every plugin writer, stripped again when reading — word counts never
+  include it), so the scene text is a regular foldable section instead of
+  loose text at the top of the file: collapse it with the heading's own
+  chevron when you want to work on notes/todos/threads without scrolling
+  past a long scene.
 - From there to the end of the file is **yours** — never touched by import
   or update-import, regardless of which text mode you use (see "Word
   import" below). Word/page counts only ever count the prose half. Three
@@ -114,9 +119,10 @@ A structure note's body is split into two zones (see `src/utils/noteBody.ts`):
   - `## Notes` — free-form comments, research notes, editorial remarks.
     Scaffolded automatically (even empty) on every note the plugin writes.
   - `## Todos` — a plain Markdown checklist, one line per todo
-    (`- [ ] Text ⏫ ^id`, see "Todos" below) — real, clickable Obsidian
-    checkboxes instead of a frontmatter array. Only appears once you've
-    actually added a todo.
+    (`- [ ] Text (high) ^id`, see "Todos" below) — real, clickable Obsidian
+    checkboxes instead of a frontmatter array. Scaffolded automatically
+    (even empty) on every note the plugin writes, same as `## Notes`, so
+    there's always a place to type a checklist item by hand.
   - `## Threads` — machine-managed, one `### [[Thread note]]` sub-heading
     per conflict/motif this scene references, followed by that thread's
     development text here (see below). Only appears once you've actually
@@ -134,7 +140,9 @@ whole novel and develop scene by scene — "threads". Rather than being
 arbitrary links to whatever note, each one is a dedicated note
 (`type: conflict`, `type: motif`, `type: event` or `type: plant`) living in
 a shared `<structure folder>/Threads/` subfolder, with its own `title`,
-`summary`, `characters` (`[[links]]`), and `thread_status`
+`summary`, `characters` (`[[links]]`), `sources` (`[[links]]` to archive
+material / secondary literature backing the thread, wherever those notes
+live in the vault), and `thread_status`
 (`open`/`developing`/`resolved`). Conflicts additionally get a `scope`
 (`internal`/`interpersonal`/`external`, optional/"Unspecified" by default —
 a fixed dropdown, not free text; named "scope" rather than "category" to
@@ -176,6 +184,13 @@ all — `thread_status` alone already carries the meaning
   a markdown bullet and clears the field for the next one, instead of one
   continuously-edited textarea block. Existing points show underneath,
   individually removable.
+- **Sources for a single development step** don't get a field of their own:
+  drop the `[[link]]` straight into that development bullet's text. It's
+  ordinary markdown in the scene body, so it renders as a normal link
+  there and in the DataviewJS timeline — and the plugin's own timeline/
+  preview UIs (thread editor, scene editor chips) render `[[links]]` in
+  development text as clickable too. Thread-level sources go in the
+  `sources` field instead (see above).
 - **`ThreadEditorModal`** (command **"Open thread editor"**, or the
   **"Threads"** action on a note) is the dedicated editor and the *only*
   place that links/creates a thread — switch between
@@ -278,16 +293,24 @@ rest; the line's name label sits at its right end.
   same thing.
 - **Who counts as present** (scenes mode): `focus_character` +
   `side_characters`; `characters_mentioned` only if you switch on "Include
-  mentioned".
+  mentioned"; **"Focus only"** restricts it to the focus character alone
+  (and hides the mentioned toggle while active, since the other tiers are
+  moot then).
+- **"Only with text"** (scenes mode, on by default) drops columns whose
+  `word_count` is 0 — pure heading files (e.g. chapter notes above the
+  scenes) that would otherwise appear as columns of their own. Switch it
+  off if you record characters at chapter level.
 - **X axis**: book order (`global_order`, default) or story time
   (`year`/`month`, undated columns last, book order as tiebreak) — the same
   toggle distinction matters for non-linear narration, where those two
   orders genuinely differ.
 - **Min. scenes/events** (default 2) hides characters that appear in fewer
-  columns than that — a single-column character has no "line" to draw, and
-  dropping rare ones keeps the chart readable.
+  columns than that, and **"Top"** keeps only the N most-appearing
+  characters (empty = all) — both are there to keep a large cast from
+  turning the chart into spaghetti.
 - Any structure note with characters becomes a column in scenes mode —
-  typically scenes, but chapter-level character data works the same way.
+  typically scenes, but chapter-level character data works the same way
+  (see "Only with text" above).
 - Layout: a crossing-minimal storyline layout is NP-hard, so it uses the
   standard barycenter-sweep heuristic (per-column orderings, scene casts
   kept contiguous) — hand-rolled SVG, no charting library. It re-renders
@@ -349,6 +372,13 @@ currently open note; it never touches the underlying data, and Obsidian's
 internal class name for that widget isn't officially documented, so the
 CSS covers several fallback selectors.
 
+The note's **prose text** needs no toggle of its own: non-empty prose is
+written under a `## Text` heading (see "The note body" above), so hiding
+the scene text is Obsidian's **native heading fold** — click the collapse
+chevron next to `## Text`, in Reading View or Live Preview alike, and
+Obsidian remembers the fold per file. (Requires "Fold heading" enabled in
+Settings → Editor, which is the default.)
+
 ## Novel Board (card view)
 
 Command **"Open novel board"** / ribbon icon. A storyboard: sections (and,
@@ -370,22 +400,29 @@ inside a card until you focus it.
 ## Todos
 
 Todos live in each note's body as a `## Todos` checklist — one
-`- [ ] Text ⏫ ^id` line per todo (checkbox, free text, an optional priority
-marker — ⏫ high / 🔽 low, omitted for the medium default — and a block-id
-anchor used to address that line for done/priority toggling) — including a
-separate private-todo file for anything not tied to a scene
-(`ensurePrivateTodoFile` creates it inside the structure folder). Being part
-of the body's preserved tail (see above), they survive (update-)import
-untouched in every text mode, same as `## Notes`/`## Threads` — and render
-as real, clickable checkboxes instead of raw YAML, which Obsidian's
-Properties panel can't do for a nested array of objects. A file with a
-leftover legacy frontmatter `todos: [...]` array (from before this change)
-gets it migrated into the body automatically, the first time its todos are
-read or edited.
+`- [ ] Text (high) ^id` line per todo (checkbox, free text, an optional
+priority marker — `(high)` / `(low)`, omitted for the medium default — and
+a block-id anchor used to address that line for done/priority/delete
+actions) — including a separate private-todo file for anything not tied to
+a scene (`ensurePrivateTodoFile` creates it inside the structure folder).
+Being part of the body's preserved tail (see above), they survive
+(update-)import untouched in every text mode, same as
+`## Notes`/`## Threads` — and render as real, clickable checkboxes instead
+of raw YAML, which Obsidian's Properties panel can't do for a nested array
+of objects. The priority markers are plain ASCII on purpose: the original
+emoji markers (⏫/🔽) hit a UTF-16 trap (🔽 is two code units; trimming one
+left a stranded half-character that then accumulated fresh markers on
+every priority cycle) — lines in the old format, including damaged ones,
+are recognized and healed automatically on their next read. Likewise a
+file with a leftover legacy frontmatter `todos: [...]` array gets it
+migrated into the body automatically.
 
-- Add a todo from a card/the metadata editor, or via the quick-add buttons
-  in the Todo center.
-- Priority (`high`/`medium`/`low`) cycles by clicking its chip.
+- Add a todo from a card/the metadata editor, via the quick-add buttons in
+  the Todo center — or **type a `- [ ] …` line by hand** under `## Todos`
+  (the heading is scaffolded on every plugin-written note, and hand-typed
+  lines get their `^id` anchor assigned automatically on first read).
+- Priority (`high`/`medium`/`low`) cycles by clicking its chip; the "×" at
+  the end of a row (in the card/metadata editor) deletes the todo.
 - **Todo center** (command **"Open todo center"** / ribbon icon) — a modal:
   today's plan, tomorrow's plan, quick-add, and every open todo grouped by
   priority with an "Add to… Today/Tomorrow × Must/Maybe" picker per todo.
@@ -437,10 +474,15 @@ document, instead of creating a new tree from scratch.
    prose:
    - **Import text from Word** (default) — replaces it with the fresh text.
    - **Keep existing text** — leaves it exactly as-is; only structural
-     fields (title, parent, order, word/page count recomputed from the
-     *existing* text) refresh.
-   - **Discard existing text** — clears it out; word count falls back to
-     the Word doc's real length as a reference number instead of 0.
+     fields (title, parent, order) refresh.
+   - **Discard existing text** — clears it out.
+   - In **every** mode, word/page counts update from the freshly parsed
+     Word document — Word is the manuscript's source of truth, so its
+     length is the reference number even when its prose isn't mirrored into
+     the note body (same rule as the fresh import's structure-only mode).
+     Caveat: the live word counter recomputes from the note *body* on later
+     edits whenever the body has prose, so on kept non-empty bodies the
+     Word-based number holds only until the note is next edited.
    - In every mode, the `## Notes`/`## Todos`/`## Threads` tail and all
      Obsidian-only frontmatter fields (summary, characters, status, motifs,
      conflicts, …) are preserved untouched.
