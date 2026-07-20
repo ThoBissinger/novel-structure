@@ -448,6 +448,21 @@ under section 2 starts at 1 again). Empty heading-styled paragraphs (a
 common Word artifact — blank lines or page breaks carrying heading
 formatting) are skipped instead of becoming empty "Untitled" files.
 
+**Footnotes/endnotes**: a reference marker inside a heading is stripped
+before the title is used for the file name (so a footnoted chapter title
+doesn't end up with a stray number in its file name); a marker inside the
+body renders as a plain `[N]` (Word's own numbering, not a dead link to an
+in-document anchor). Each note's actual text is reattached to whichever
+node its reference occurs in — heading or body — and appended there as a
+`### Footnotes` list (`- **[N]** text`, a bullet list rather than a
+markdown ordered list, since Markdown renumbers ordered lists sequentially
+regardless of the digits written, which would relabel non-consecutive
+footnote numbers). That list ends up nested under that note's `## Text`
+heading (see "The note body" above) once written, so it folds/unfolds
+together with the prose. Endnotes are folded into the same list — the
+distinction (page-bottom vs. document-end in the original `.docx`) has no
+meaning once imported.
+
 An **"Import text"** toggle in the preview lets you create structure-only
 files instead — titles and metadata, no prose, `word_count` still set to
 the real Word-doc length as a fixed reference number (not 0) until you
