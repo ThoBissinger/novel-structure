@@ -31,11 +31,16 @@
   "includeTypeInFileName": true,
   "boardVisibleDepth": "scene",
   "defaultFrontmatterDisplay": "hidden",
+  "defaultTextFolded": false,
   "structureViewShowTypeLabels": true,
   "characterRoles": {
     "06_MainNotes/Galinka Ehrenfest.md": "main",
     "01_RoughNotes/Georgia O'Keeffe.md": "side",
     "01_RoughNotes/Edna Teddy Bryner-Schwab.md": "side",
     "01_RoughNotes/Arthur Schwab.md": "side"
-  }
+  },
+  "primaryLocations": [],
+  "mcpServerEnabled": false,
+  "mcpServerPort": 27124,
+  "mcpServerToken": "b4807f95-d37f-4353-82cf-f3a605bc2a38"
 }

@@ -515,6 +515,45 @@ document, instead of creating a new tree from scratch.
    independent once every file's final name is decided), and
    `updateStructureMetadata` runs once at the end.
 
+## MCP server (AI integration)
+
+The plugin can run a local MCP ([Model Context Protocol](https://modelcontextprotocol.io))
+server so an AI client — Claude Desktop, Claude Code, or any other
+MCP-capable client, local or cloud — can read and write threads, todos, and
+scene content through the plugin's own logic instead of hand-editing
+frontmatter/markdown (and risking exactly the schema mistakes this plugin's
+conventions exist to prevent).
+
+- Bound to `127.0.0.1` only, bearer-token authed (generated, never
+  user-typed), Streamable HTTP transport at `http://127.0.0.1:<port>/mcp`.
+- Every tool is a thin wrapper around the same `utils/*.ts` functions the UI
+  itself calls — `create_thread`/`add_thread_development` go through
+  `threads.ts`, `add_todo`/`set_todo_done` through `todos.ts`, etc. — so an
+  AI-driven edit round-trips through `noteBody.ts`'s "## Text"/"## Notes"/
+  "## Todos"/"## Threads" convention exactly like a manual one.
+- **Read tools**: `list_scenes`, `get_scene` (frontmatter + prose + resolved
+  thread developments + todos, bundled), `list_threads`, `get_thread`,
+  `list_characters`, `list_locations`, `list_todos`, `export_manuscript_json`
+  (the whole book as structured JSON, one row per structure note).
+- **Write tools**: `create_thread`, `update_thread`,
+  `add_thread_development`, `remove_thread_from_scene`, `add_todo`,
+  `set_todo_done`, `set_todo_priority`, `remove_todo`,
+  `link_character_to_scene`, `link_location_to_scene`.
+- Not included yet: creating character/location notes (there's no dedicated
+  note type for either — see "Characters"/"Locations" above) or creating new
+  structure nodes (scenes/chapters) via MCP.
+
+Enable it under Settings → MCP server, then register it with your client,
+e.g. for Claude Code:
+
+```bash
+claude mcp add --transport http novel-structure http://127.0.0.1:<port>/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+The token is stored in this vault's `data.json` in plain text, like every
+other Obsidian plugin setting — treat it like a password.
+
 ## Settings
 
 - **Structure folder** — the vault folder everything lives in (with
@@ -522,6 +561,8 @@ document, instead of creating a new tree from scratch.
 - **Words per page** — for the page-count estimate.
 - **Private todo file** — file name (inside the structure folder) for
   todos not tied to a scene.
+- **MCP server** — enable/disable, port, bearer token (with regenerate/copy)
+  — see "MCP server (AI integration)" above.
 - **File naming** — toggle to prefix new file names with their type label
   (`"Scene - Title"`), plus an editable label per structure type.
 - **Default heading mapping for Word import** — the starting point offered
@@ -570,6 +611,27 @@ src/
     updateImport.ts                Update import: match, plan, apply
                                     (rename/update/create/delete)
     todos.ts                       Body-checklist todo storage & actions
+    sceneContext.ts                 Bundles a scene's frontmatter + prose +
+                                     resolved thread developments + todos
+                                     into one read (used by the MCP get_scene
+                                     tool)
+  mcp/
+    server.ts                       Local HTTP server + Streamable HTTP
+                                     transport lifecycle (start/stop)
+    auth.ts                         Bearer-token check
+    registerTools.ts                 Wires every tools/*.ts module into one
+                                     McpServer instance
+    toolContext.ts                   { plugin } passed to every tool handler
+    toolResult.ts                    jsonResult/errorResult helpers
+    tools/
+      scenes.tools.ts                 list_scenes, get_scene
+      threads.tools.ts                list/get/create/update_thread,
+                                       add/remove_thread_development
+      characters.tools.ts             list_characters, link_character_to_scene
+      locations.tools.ts              list_locations, link_location_to_scene
+      todos.tools.ts                  list/add/remove_todo,
+                                       set_todo_done/priority
+      manuscript.tools.ts             export_manuscript_json
   classes/
     FolderSuggest.ts                Folder-path autocomplete
     NoteLinkSuggest.ts               Note-title autocomplete for link fields

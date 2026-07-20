@@ -83,6 +83,16 @@ export interface NovelStructureSettings {
   // distinction (primary vs. not), so a plain list of paths is enough —
   // see locations.ts.
   primaryLocations: string[];
+  // In-plugin MCP (Model Context Protocol) server, so an AI client can read/
+  // write threads, todos, and scene content through this plugin's own
+  // validated code paths. Bound to 127.0.0.1 only; token is generated
+  // (crypto.randomUUID()), never user-typed, and backfilled on first load if
+  // empty — see main.ts loadSettings(). Stored in this vault's data.json in
+  // plain text like every other Obsidian plugin setting; not a real secret
+  // store, just enough to keep a stray LAN scan from finding an open door.
+  mcpServerEnabled: boolean;
+  mcpServerPort: number;
+  mcpServerToken: string;
 }
 
 export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
@@ -112,6 +122,9 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   structureViewShowTypeLabels: true,
   characterRoles: {},
   primaryLocations: [],
+  mcpServerEnabled: false,
+  mcpServerPort: 27124,
+  mcpServerToken: "",
 };
 
 export const VIEW_TYPE_STRUCTURE = "novel-structure-view";

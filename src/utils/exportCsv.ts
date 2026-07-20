@@ -52,15 +52,44 @@ function csvEscape(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-function linksToText(links: string[] | undefined): string {
-  return (links ?? []).map((l) => extractLinkBasename(l) ?? l).join("; ");
-}
-
 function todosToText(todos: TodoEntry[] | undefined): string {
   return (todos ?? []).map((t) => `${t.text}${t.done ? " [done]" : ""} (${t.priority})`).join(" | ");
 }
 
-export async function buildStructureExportCsv(app: App, settings: NovelStructureSettings): Promise<string> {
+/** One row per structure file, in book order — the shared data source behind
+ * both the CSV export below and the MCP `export_manuscript_json` tool, so
+ * "what's the whole manuscript's structure" is computed exactly once. */
+export interface StructureExportRow {
+  path: string;
+  type: string;
+  level: number;
+  title: string;
+  globalOrder: number | null;
+  status: string;
+  revision: number | null;
+  year: number | null;
+  month: number | null;
+  focusCharacter: string | null;
+  sideCharacters: string[];
+  charactersMentioned: string[];
+  locations: string[];
+  conflicts: string[];
+  motifs: string[];
+  events: string[];
+  plants: string[];
+  summary: string;
+  todos: TodoEntry[];
+  wordCount: number | null;
+  pageCount: number | null;
+  plannedLength: number | null;
+  tags: string[];
+}
+
+function linksToTitles(links: string[] | undefined): string[] {
+  return (links ?? []).map((l) => extractLinkBasename(l) ?? l);
+}
+
+export async function buildStructureExportRows(app: App, settings: NovelStructureSettings): Promise<StructureExportRow[]> {
   const files = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings));
   files.sort((a, b) => {
     const fa = app.metadataCache.getFileCache(a)?.frontmatter;
@@ -68,39 +97,73 @@ export async function buildStructureExportCsv(app: App, settings: NovelStructure
     return (fa?.global_order ?? 0) - (fb?.global_order ?? 0);
   });
 
-  const rows: string[] = [];
+  const rows: StructureExportRow[] = [];
   for (const f of files) {
     const fm = app.metadataCache.getFileCache(f)?.frontmatter ?? {};
     const todos = await readTodosForFile(app, f);
-    const row = [
-      f.path,
-      fm.type ?? "",
-      String(Math.max(0, STRUCTURE_TYPES.indexOf(fm.type))),
-      fm.title || f.basename,
-      fm.global_order != null ? String(fm.global_order) : "",
-      fm.status ?? "",
-      fm.revision != null ? String(fm.revision) : "",
-      fm.year != null ? String(fm.year) : "",
-      fm.month != null ? String(fm.month) : "",
-      extractLinkBasename(fm.focus_character) ?? "",
-      linksToText(fm.side_characters),
-      linksToText(fm.characters_mentioned),
-      linksToText(fm.locations),
-      linksToText(fm.conflicts),
-      linksToText(fm.motifs),
-      linksToText(fm.events),
-      linksToText(fm.plants),
-      fm.summary ?? "",
-      todosToText(todos),
-      fm.word_count != null ? String(fm.word_count) : "",
-      fm.page_count != null ? String(fm.page_count) : "",
-      fm.planned_length != null ? String(fm.planned_length) : "",
-      (fm.tags ?? []).join("; "),
-    ];
-    rows.push(row.map(csvEscape).join(","));
+    rows.push({
+      path: f.path,
+      type: fm.type ?? "",
+      level: Math.max(0, STRUCTURE_TYPES.indexOf(fm.type)),
+      title: fm.title || f.basename,
+      globalOrder: fm.global_order ?? null,
+      status: fm.status ?? "",
+      revision: fm.revision ?? null,
+      year: fm.year ?? null,
+      month: fm.month ?? null,
+      focusCharacter: extractLinkBasename(fm.focus_character),
+      sideCharacters: linksToTitles(fm.side_characters),
+      charactersMentioned: linksToTitles(fm.characters_mentioned),
+      locations: linksToTitles(fm.locations),
+      conflicts: linksToTitles(fm.conflicts),
+      motifs: linksToTitles(fm.motifs),
+      events: linksToTitles(fm.events),
+      plants: linksToTitles(fm.plants),
+      summary: fm.summary ?? "",
+      todos,
+      wordCount: fm.word_count ?? null,
+      pageCount: fm.page_count ?? null,
+      plannedLength: fm.planned_length ?? null,
+      tags: fm.tags ?? [],
+    });
   }
+  return rows;
+}
 
-  return [COLUMNS.join(","), ...rows].join("\n") + "\n";
+export async function buildStructureExportCsv(app: App, settings: NovelStructureSettings): Promise<string> {
+  const rows = await buildStructureExportRows(app, settings);
+
+  const csvRows = rows.map((r) =>
+    [
+      r.path,
+      r.type,
+      String(r.level),
+      r.title,
+      r.globalOrder != null ? String(r.globalOrder) : "",
+      r.status,
+      r.revision != null ? String(r.revision) : "",
+      r.year != null ? String(r.year) : "",
+      r.month != null ? String(r.month) : "",
+      r.focusCharacter ?? "",
+      r.sideCharacters.join("; "),
+      r.charactersMentioned.join("; "),
+      r.locations.join("; "),
+      r.conflicts.join("; "),
+      r.motifs.join("; "),
+      r.events.join("; "),
+      r.plants.join("; "),
+      r.summary,
+      todosToText(r.todos),
+      r.wordCount != null ? String(r.wordCount) : "",
+      r.pageCount != null ? String(r.pageCount) : "",
+      r.plannedLength != null ? String(r.plannedLength) : "",
+      r.tags.join("; "),
+    ]
+      .map(csvEscape)
+      .join(",")
+  );
+
+  return [COLUMNS.join(","), ...csvRows].join("\n") + "\n";
 }
 
 /** Writes (or overwrites, if run before) the export CSV into the structure

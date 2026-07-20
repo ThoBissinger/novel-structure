@@ -37,6 +37,21 @@ export function collectKnownLocations(app: App, settings: NovelStructureSettings
   return [...counts.values()];
 }
 
+/** Appends `locationFile` (deduped) to `sceneFile`'s frontmatter `locations`
+ * array. Mirrors how threads.ts's addThreadDevelopmentToScene links a thread
+ * into a scene, so the UI can reuse this too instead of splicing
+ * frontmatter by hand. */
+export async function linkLocationToScene(app: App, sceneFile: TFile, locationFile: TFile): Promise<void> {
+  const link = `[[${locationFile.basename}]]`;
+  await app.fileManager.processFrontMatter(sceneFile, (fm) => {
+    const arr: string[] = fm.locations ?? [];
+    if (!arr.some((l: string) => extractLinkBasename(l) === locationFile.basename)) {
+      arr.push(link);
+    }
+    fm.locations = arr;
+  });
+}
+
 export function isPrimaryLocation(settings: NovelStructureSettings, file: TFile): boolean {
   return settings.primaryLocations.includes(file.path);
 }

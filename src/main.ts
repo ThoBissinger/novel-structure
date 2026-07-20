@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { MarkdownView, Notice, Plugin, TFile, debounce } from "obsidian";
 import {
   DEFAULT_SETTINGS,
@@ -9,6 +10,7 @@ import {
 } from "./types";
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
+import { McpHttpServer } from "./mcp/server";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
 import { LocationOverviewModal } from "./classes/modals/LocationOverviewModal";
 import { exportStructureToCsv } from "./utils/exportCsv";
@@ -74,6 +76,7 @@ const FRONTMATTER_MODE_ICON: Record<FrontmatterDisplayMode, string> = {
 
 export default class NovelStructurePlugin extends Plugin {
   settings!: NovelStructureSettings;
+  mcpServer!: McpHttpServer;
 
   // Plain Maps (not WeakMaps) so onunload() can iterate and remove
   // everything we added to view headers/content — Obsidian doesn't clean
@@ -85,7 +88,25 @@ export default class NovelStructurePlugin extends Plugin {
   private frontmatterMode = new WeakMap<MarkdownView, FrontmatterDisplayMode>(); // just a flag, no DOM ref — fine as a WeakMap
 
   async onload() {
+    const loadStart = Date.now();
+    console.debug("[novel-structure] onload start");
     await this.loadSettings();
+
+    // Fire-and-forget, not awaited: binding a listening socket can stall for
+    // reasons entirely outside this plugin's control (a Windows firewall
+    // prompt, antivirus scanning, a port already in use) and there is no
+    // reason the rest of onload() — registerView/addCommand/ribbon icons —
+    // should wait on it. Blocking here once caused a real failure: a slow
+    // start left the plugin looking "stuck" during enable, the user retried,
+    // and a second onload() ran registerView() again for the same view
+    // types before the first had a chance to finish, which Obsidian rejects
+    // outright ("Attempting to register an existing view type").
+    this.mcpServer = new McpHttpServer({ plugin: this });
+    if (this.settings.mcpServerEnabled) {
+      this.mcpServer
+        .start(this.settings.mcpServerPort, this.settings.mcpServerToken)
+        .catch((e) => new Notice(`MCP server failed to start: ${(e as Error).message}`));
+    }
 
     // Obsidian fires vault "create"/"modify" and metadataCache "changed"
     // events for every *pre-existing* file while it's still populating/
@@ -345,9 +366,16 @@ export default class NovelStructurePlugin extends Plugin {
     this.addRibbonIcon("activity", "Open narrative chart", () => this.activateNarrativeChartView());
 
     this.addSettingTab(new NovelStructureSettingTab(this.app, this));
+
+    console.debug(`[novel-structure] onload done in ${Date.now() - loadStart}ms`);
   }
 
   onunload() {
+    // Obsidian doesn't reliably await an async onunload(), so this is
+    // fire-and-forget rather than awaited — the listening socket still
+    // closes promptly either way.
+    void this.mcpServer?.stop();
+
     // Obsidian doesn't auto-remove view.addAction() icons or DOM nodes a
     // plugin inserted into rendered content when the plugin unloads — left
     // alone, disabling/re-enabling (or a hot-reload) leaves stale icons/bars
@@ -676,9 +704,29 @@ export default class NovelStructurePlugin extends Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // Never user-typed — generated once on first load and kept until the
+    // user hits "Regenerate" in settings (see NovelStructureSettingTab).
+    if (!this.settings.mcpServerToken) {
+      this.settings.mcpServerToken = randomUUID();
+      await this.saveSettings();
+    }
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /** Stops the MCP server, then restarts it if still enabled — called after
+   * any settings change that could affect it (enabled toggle, port, token).
+   * Simpler and just as cheap as diffing which field actually changed. */
+  async restartMcpServer(): Promise<void> {
+    await this.mcpServer.stop();
+    if (this.settings.mcpServerEnabled) {
+      try {
+        await this.mcpServer.start(this.settings.mcpServerPort, this.settings.mcpServerToken);
+      } catch (e) {
+        new Notice(`MCP server failed to start: ${(e as Error).message}`);
+      }
+    }
   }
 }

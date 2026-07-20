@@ -1,4 +1,5 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { randomUUID } from "crypto";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { DEFAULT_SETTINGS, DEFAULT_TYPE_LABELS, FrontmatterDisplayMode, STRUCTURE_TYPES, StructureType } from "../../types";
 import { FolderSuggest } from "../FolderSuggest";
@@ -93,6 +94,82 @@ export class NovelStructureSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
+
+    containerEl.createEl("h3", { text: "MCP server" });
+    containerEl.createEl("p", {
+      text:
+        "Lets an MCP-compatible AI client (Claude Desktop, Claude Code, a local-LLM bridge, ...) read and write " +
+        "threads/todos/scenes through this plugin's own logic instead of raw file edits.",
+      cls: "setting-item-description",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable MCP server")
+      .setDesc("Starts a local HTTP server (127.0.0.1 only) while this vault is open.")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.mcpServerEnabled).onChange(async (v) => {
+          this.plugin.settings.mcpServerEnabled = v;
+          await this.plugin.saveSettings();
+          await this.plugin.restartMcpServer();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Port")
+      .setDesc("1024-65535. Restarts the server if it's running.")
+      .addText((text) =>
+        text.setValue(String(this.plugin.settings.mcpServerPort)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (!isNaN(n) && n >= 1024 && n <= 65535) {
+            this.plugin.settings.mcpServerPort = n;
+            await this.plugin.saveSettings();
+            await this.plugin.restartMcpServer();
+            this.display();
+          }
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Bearer token")
+      .setDesc("Paste this into your MCP client's config as an Authorization: Bearer header.")
+      .addText((text) => {
+        text.setValue(this.plugin.settings.mcpServerToken).setDisabled(true);
+        text.inputEl.type = "password";
+        text.inputEl.addClass("novel-structure-mcp-token-input");
+      })
+      .addButton((btn) =>
+        btn.setButtonText("Copy").onClick(async () => {
+          await navigator.clipboard.writeText(this.plugin.settings.mcpServerToken);
+          new Notice("Token copied.");
+        })
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Regenerate").onClick(async () => {
+          this.plugin.settings.mcpServerToken = randomUUID();
+          await this.plugin.saveSettings();
+          await this.plugin.restartMcpServer();
+          this.display();
+        })
+      );
+
+    containerEl.createEl("p", {
+      text:
+        "The token is stored in this vault's plugin data (data.json) in plain text, like every other Obsidian " +
+        "plugin setting — treat it like a password and regenerate it if this vault is ever shared. The server " +
+        "only accepts connections from this computer (127.0.0.1).",
+      cls: "setting-item-description novel-structure-mcp-warning",
+    });
+
+    const status = this.plugin.mcpServer?.status ?? { running: false };
+    containerEl.createEl("p", {
+      text: status.running
+        ? `Running on http://127.0.0.1:${this.plugin.settings.mcpServerPort}/mcp`
+        : status.error
+          ? `Failed to start: ${status.error}`
+          : "Stopped.",
+      cls: "setting-item-description novel-structure-mcp-status",
+    });
 
     containerEl.createEl("h3", { text: "File naming" });
 

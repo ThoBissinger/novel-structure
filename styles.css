@@ -842,10 +842,18 @@ textarea.novel-board-field-input {
   background: var(--interactive-accent-hover, var(--interactive-accent, #7c3aed)) !important;
 }
 
-/* Header (view action) variant of the same active-state highlight. */
+/* Header (view action) variant of the same active-state highlight. Both
+   background AND color are forced here (not just color): leaving the
+   background to Obsidian's/the theme's own ".is-active" rules meant it could
+   land close to the accent color we set for the icon, making the icon
+   effectively disappear into its own background on some themes — reported
+   as a flat colored square with no visible icon. Owning both properties
+   removes that dependency entirely. */
 .view-action.novel-structure-mode-btn.is-active {
-  color: var(--interactive-accent, #7c3aed) !important;
+  background: var(--interactive-accent, #7c3aed) !important;
+  color: var(--text-on-accent, #ffffff) !important;
   opacity: 1;
+  border-radius: 4px;
 }
 
 .novel-structure-info-block {

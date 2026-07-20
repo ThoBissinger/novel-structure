@@ -70,6 +70,34 @@ export async function setCharacterRole(plugin: NovelStructurePlugin, file: TFile
   await plugin.saveSettings();
 }
 
+export type CharacterSceneRole = "focus" | "side" | "mentioned";
+
+/** Links `characterFile` into `sceneFile`'s appropriate frontmatter field:
+ * "focus" replaces focus_character outright (it's a single value, not a
+ * list), "side"/"mentioned" append (deduped) to their array field. Mirrors
+ * how threads.ts's addThreadDevelopmentToScene links a thread into a scene,
+ * so the UI can reuse this too instead of splicing frontmatter by hand. */
+export async function linkCharacterToScene(
+  app: App,
+  sceneFile: TFile,
+  characterFile: TFile,
+  role: CharacterSceneRole
+): Promise<void> {
+  const link = `[[${characterFile.basename}]]`;
+  await app.fileManager.processFrontMatter(sceneFile, (fm) => {
+    if (role === "focus") {
+      fm.focus_character = link;
+      return;
+    }
+    const key = role === "side" ? "side_characters" : "characters_mentioned";
+    const arr: string[] = fm[key] ?? [];
+    if (!arr.some((l: string) => extractLinkBasename(l) === characterFile.basename)) {
+      arr.push(link);
+    }
+    fm[key] = arr;
+  });
+}
+
 /** Ranking for NoteLinkSuggest (lower = higher priority): main, then
  * recurring, then side, then mentioned-only characters, then anyone else
  * already known to the book but not yet classified, then every other vault
