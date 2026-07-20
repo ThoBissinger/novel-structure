@@ -1,7 +1,7 @@
 import { App, TFile } from "obsidian";
 import { NovelStructureSettings } from "../types";
 import { extractLinkBasename, isStructureFile } from "./files";
-import { isThreadFile } from "./threads";
+import { isThreadFile, threadFieldNames, ThreadKind } from "./threads";
 
 // ---------------------------------------------------------------------------
 // Narrative chart ("movie narrative charts", xkcd #657): every character is
@@ -21,8 +21,8 @@ import { isThreadFile } from "./threads";
 
 export type ChartAxis = "book" | "story";
 /** What one column is: a scene (structure note with characters), or an
- * event thread note (its own `characters` field as the cast). */
-export type ChartMode = "scenes" | "events";
+ * event/conflict thread note (its own `characters` field as the cast). */
+export type ChartMode = "scenes" | "events" | "conflicts";
 
 export interface ChartColumn {
   file: TFile;
@@ -91,17 +91,20 @@ function collectSceneColumns(app: App, settings: NovelStructureSettings, opts: C
     });
 }
 
-/** One column per event thread note. Cast = the event's own `characters`
- * field; story time = its `start_year`/`start_month`; narrative position =
- * the first scene that references it via `events` (events no scene
- * references sort last on the "book" axis). */
-function collectEventColumns(app: App, settings: NovelStructureSettings): RawColumn[] {
+/** One column per event/conflict thread note. Cast = the thread's own
+ * `characters` field (parties involved, for conflicts); story time = its
+ * `start_year`/`start_month` (conflicts rarely set these, so they simply
+ * sort last on the "story" axis); narrative position = the first scene that
+ * references it via `events`/`conflicts` (threads no scene references sort
+ * last on the "book" axis). */
+function collectThreadColumns(app: App, settings: NovelStructureSettings, kind: ThreadKind): RawColumn[] {
+  const linkField = threadFieldNames(kind).links;
   const structureFiles = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings));
   const firstReference = new Map<string, number>();
   structureFiles.forEach((f) => {
     const fm = app.metadataCache.getFileCache(f)?.frontmatter ?? {};
     const order = (fm.global_order as number) ?? 0;
-    ((fm.events as string[]) ?? []).forEach((link) => {
+    ((fm[linkField] as string[]) ?? []).forEach((link) => {
       const name = extractLinkBasename(link);
       if (!name) return;
       const prev = firstReference.get(name);
@@ -111,7 +114,7 @@ function collectEventColumns(app: App, settings: NovelStructureSettings): RawCol
 
   return app.vault
     .getMarkdownFiles()
-    .filter((f) => isThreadFile(app, f, settings, "event"))
+    .filter((f) => isThreadFile(app, f, settings, kind))
     .map((file) => {
       const fm = app.metadataCache.getFileCache(file)?.frontmatter ?? {};
       const cast = ((fm.characters as string[]) ?? [])
@@ -135,7 +138,9 @@ function collectEventColumns(app: App, settings: NovelStructureSettings): RawCol
  * and columns left with an empty cast disappear entirely. */
 export function collectChartColumns(app: App, settings: NovelStructureSettings, opts: ChartOptions): ChartColumn[] {
   const raw = (
-    opts.mode === "events" ? collectEventColumns(app, settings) : collectSceneColumns(app, settings, opts)
+    opts.mode === "scenes"
+      ? collectSceneColumns(app, settings, opts)
+      : collectThreadColumns(app, settings, opts.mode === "events" ? "event" : "conflict")
   ).filter((c) => c.cast.length > 0);
 
   raw.sort((a, b) => {

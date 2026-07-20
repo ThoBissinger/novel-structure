@@ -136,8 +136,14 @@ export async function parseDocx(
   docxFile: TFile,
   mapping: HeadingMappingEntry[]
 ): Promise<ParsedImport> {
+  // mammoth resolves to its Node build under esbuild's platform:"node" (added
+  // this session for the MCP server) rather than its browser build — the
+  // Node build's openZip() only recognizes options.path/buffer/file, not
+  // options.arrayBuffer (that key is browser-build-only), so it must be a
+  // real Buffer here or every import silently fails with "Could not find
+  // file in options".
   const arrayBuffer = await app.vault.readBinary(docxFile);
-  const result = await mammoth.convertToHtml({ arrayBuffer });
+  const result = await mammoth.convertToHtml({ buffer: Buffer.from(arrayBuffer) });
   const html = result.value;
 
   const turndownService = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });

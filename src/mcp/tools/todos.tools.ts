@@ -2,10 +2,23 @@ import type { App, TFile } from "obsidian";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Priority, PRIORITY_ORDER, TodoItem } from "../../types";
-import { addTodo, collectTodos, readTodosForFile, removeTodo, setTodoDone, setTodoPriority } from "../../utils/todos";
+import {
+  addTodo,
+  collectTodos,
+  readTodosForFile,
+  removeTodo,
+  setTodoDeadline,
+  setTodoDone,
+  setTodoPriority,
+} from "../../utils/todos";
 import type { ToolContext } from "../toolContext";
 import { errorResult, jsonResult } from "../toolResult";
 import { resolveFile } from "./shared";
+
+const deadlineSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
+  .describe("Deadline, YYYY-MM-DD. Highlighted the day before, red once due/overdue.");
 
 /** setTodoDone/setTodoPriority take a resolved TodoItem, not just an id —
  * same inline construction StructureNoteEditor uses for its own row
@@ -52,13 +65,14 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
         path: z.string().describe("Vault-relative path, e.g. from list_scenes."),
         text: z.string(),
         priority: z.enum(PRIORITY_ORDER as [Priority, ...Priority[]]).optional(),
+        deadline: deadlineSchema.optional(),
       },
     },
-    async ({ path, text, priority }) => {
+    async ({ path, text, priority, deadline }) => {
       const file = resolveFile(ctx, path);
       if (!file) return errorResult(`No note found at "${path}".`);
-      await addTodo(ctx.plugin.app, file, text, priority ?? "medium");
-      return jsonResult({ path: file.path, text, priority: priority ?? "medium" });
+      await addTodo(ctx.plugin.app, file, text, priority ?? "medium", deadline ?? null);
+      return jsonResult({ path: file.path, text, priority: priority ?? "medium", deadline: deadline ?? null });
     }
   );
 
@@ -95,6 +109,24 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
       if (!item) return errorResult(`No todo with id "${todoId}" found in "${path}".`);
       await setTodoPriority(app, item, priority);
       return jsonResult({ path: file.path, todoId, priority });
+    }
+  );
+
+  server.registerTool(
+    "set_todo_deadline",
+    {
+      title: "Set todo deadline",
+      description: "Sets or clears a todo's deadline by id (see list_todos for ids). Omit deadline to clear it.",
+      inputSchema: { path: z.string(), todoId: z.string(), deadline: deadlineSchema.optional() },
+    },
+    async ({ path, todoId, deadline }) => {
+      const { app } = ctx.plugin;
+      const file = resolveFile(ctx, path);
+      if (!file) return errorResult(`No note found at "${path}".`);
+      const item = await findTodoItem(app, file, todoId);
+      if (!item) return errorResult(`No todo with id "${todoId}" found in "${path}".`);
+      await setTodoDeadline(app, item, deadline ?? null);
+      return jsonResult({ path: file.path, todoId, deadline: deadline ?? null });
     }
   );
 

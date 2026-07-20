@@ -1,7 +1,7 @@
-import { App, Modal, Setting } from "obsidian";
+import { App, Modal, Setting, TFile } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_ORDER, TodoItem } from "../../types";
-import { collectTodos, todayDate, tomorrowDate } from "../../utils/todos";
+import { TodoItem } from "../../types";
+import { collectTodos, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
 
 type SelectionValue = "none" | "maybe" | "must";
 
@@ -40,18 +40,17 @@ export class DailySelectionModal extends Modal {
     });
     introText.style.opacity = "0.8";
 
-    this.hintEl = contentEl.createEl("p");
+    this.hintEl = contentEl.createEl("p", { text: "Loading todos…", cls: "novel-todo-loading" });
 
     const existing = this.plugin.settings.dailySelections[this.targetDate];
     this.todos = (await collectTodos(this.plugin)).filter((t) => !t.done);
+    this.hintEl.removeClass("novel-todo-loading");
 
     if (this.todos.length === 0) {
       contentEl.createEl("p", { text: "No open todos found – you're all caught up! 🎉" });
     }
 
-    const sorted = [...this.todos].sort(
-      (a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority)
-    );
+    const sorted = sortTodosForDisplay(this.todos);
 
     sorted.forEach((todo) => {
       let value: SelectionValue = "none";
@@ -59,9 +58,21 @@ export class DailySelectionModal extends Modal {
       else if (existing?.maybe.includes(todo.id)) value = "maybe";
       this.selection.set(todo.id, value);
 
+      const deadlinePart = todo.deadline ? ` · Due: ${todo.deadline}` : "";
       new Setting(contentEl)
         .setName(todo.text)
-        .setDesc(`${todo.source === "private" ? "Private" : todo.fileTitle} · Priority: ${todo.priority}`)
+        .setDesc(`${todo.source === "private" ? "Private" : todo.fileTitle} · Priority: ${todo.priority}${deadlinePart}`)
+        .addExtraButton((btn) =>
+          btn
+            .setIcon("external-link")
+            .setTooltip("Jump to this todo in its file")
+            .onClick(async () => {
+              const file = this.app.vault.getAbstractFileByPath(todo.filePath);
+              if (!(file instanceof TFile)) return;
+              this.close();
+              await this.app.workspace.openLinkText(`${file.basename}#^${todo.id}`, file.path, false);
+            })
+        )
         .addDropdown((dd) => {
           dd.addOption("none", "—");
           dd.addOption("maybe", "Maybe");

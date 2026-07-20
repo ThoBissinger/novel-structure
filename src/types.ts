@@ -141,12 +141,27 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
   low: "#8a8a8a",
 };
 
+/** A checklist item nested under a todo — for breaking a short-titled todo
+ * down into concrete implementation steps, tracked independently of the
+ * parent's own done state. */
+export interface TodoSubtask {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 /** Shape of one entry in a note's frontmatter `todos` array. */
 export interface TodoEntry {
   id: string;
   text: string;
   done: boolean;
   priority: Priority;
+  deadline: string | null; // "YYYY-MM-DD", or null if unset
+  subtasks: TodoSubtask[];
+  // Recurring todos (e.g. "do the laundry"): checking one off resets it to
+  // open and pushes its deadline this many days out from today, instead of
+  // staying done — see setTodoDone(). null = a normal, one-off todo.
+  recurrenceDays: number | null;
 }
 
 /** A todo resolved with its file context, for display/UI purposes. */
@@ -155,6 +170,9 @@ export interface TodoItem {
   text: string;
   done: boolean;
   priority: Priority;
+  deadline: string | null;
+  subtasks: TodoSubtask[];
+  recurrenceDays: number | null;
   source: "scene" | "private";
   filePath: string;
   fileTitle: string;

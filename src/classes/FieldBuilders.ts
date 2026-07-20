@@ -213,6 +213,11 @@ export function addBulletListField(
       commit();
     }
   });
+  // Also commit on blur — closing the modal (or clicking any other field)
+  // right after typing a point but before pressing Enter/"+" used to
+  // silently drop it. A click's focus change fires blur before its own
+  // click handler runs, so this reliably flushes it either way.
+  input.addEventListener("blur", commit);
   const addBtn = addRow.createEl("span", { cls: "novel-board-chip-add-btn" });
   setIcon(addBtn, "plus");
   addBtn.onclick = (evt) => {

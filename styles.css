@@ -356,6 +356,27 @@ textarea.novel-board-field-input {
   border-left: 3px solid rgba(224, 168, 0, 0.55);
 }
 
+.novel-board-todos-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.novel-board-todo-add-modal-btn {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 2px;
+}
+.novel-board-todo-add-modal-btn:hover {
+  opacity: 1;
+  color: var(--interactive-accent, #7c3aed);
+}
+.novel-board-todo-add-modal-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
 .novel-board-todo-list {
   display: flex;
   flex-direction: column;
@@ -377,7 +398,19 @@ textarea.novel-board-field-input {
 
 .novel-board-todo-text {
   flex: 1;
+  min-width: 0;
   font-size: 0.85em;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  padding: 1px 3px;
+  border-radius: 3px;
+  text-overflow: ellipsis;
+}
+.novel-board-todo-text:hover,
+.novel-board-todo-text:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
 }
 .novel-board-todo-text.is-done {
   text-decoration: line-through;
@@ -395,10 +428,51 @@ textarea.novel-board-field-input {
   border: 1px solid currentColor;
 }
 
+.novel-board-todo-subtask-badge {
+  font-size: 0.68em;
+  opacity: 0.6;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  white-space: nowrap;
+}
+
 .novel-board-todo-add-row {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.novel-board-todo-deadline-input {
+  font-size: 0.75em;
+  max-width: 130px;
+}
+
+.novel-board-todo-deadline {
+  font-size: 0.68em;
+  max-width: 110px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.novel-board-todo-deadline:hover,
+.novel-board-todo-deadline:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+/* Deadline urgency: due tomorrow gets a warm highlight, due/overdue gets a
+   red one — both a tinted background (readable in light/dark alike) plus a
+   stronger left border, on top of whatever the priority border color is. */
+.novel-board-todo-row-due-soon {
+  background: rgba(224, 168, 0, 0.16);
+  border-left-color: var(--text-warning, #e0a800) !important;
+}
+.novel-board-todo-row-overdue {
+  background: rgba(220, 38, 38, 0.16);
+  border-left-color: var(--text-error, #dc2626) !important;
 }
 
 .novel-board-conflicts {
@@ -470,11 +544,57 @@ textarea.novel-board-field-input {
 /* ---------------------------------------------------------------------- */
 
 .novel-todo-modal {
-  width: min(640px, 92vw);
+  width: min(1180px, 96vw);
 }
 .novel-todo-modal .modal-content {
-  max-height: 78vh;
+  max-height: 84vh;
   overflow-y: auto;
+}
+
+.novel-todo-modal-subtask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+.novel-todo-modal-subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.novel-todo-modal-subtask-text {
+  flex: 1;
+  font-size: 0.9em;
+}
+.novel-todo-modal-subtask-remove {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.5;
+}
+.novel-todo-modal-subtask-remove:hover {
+  opacity: 1;
+  color: var(--text-error);
+}
+.novel-todo-modal-subtask-remove svg {
+  width: 13px;
+  height: 13px;
+}
+.novel-todo-modal-subtask-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.novel-todo-modal-subtask-add-btn {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.novel-todo-modal-subtask-add-btn:hover {
+  opacity: 1;
+  color: var(--interactive-accent, #7c3aed);
 }
 
 .novel-metadata-modal {
@@ -638,16 +758,17 @@ textarea.novel-board-field-input {
 .novel-todo-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
 .novel-todo-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
   border-left: 3px solid transparent;
-  border-radius: 4px;
+  border-radius: 5px;
+  min-height: 34px;
 }
 .novel-todo-row:hover {
   background: var(--background-modifier-hover);
@@ -655,15 +776,44 @@ textarea.novel-board-field-input {
 
 .novel-todo-checkbox {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+}
+
+.novel-todo-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .novel-todo-text {
-  flex: 1;
-  font-size: 0.92em;
+  font-size: 1em;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  padding: 1px 3px;
+  border-radius: 3px;
+  text-overflow: ellipsis;
+}
+.novel-todo-text:hover,
+.novel-todo-text:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
 }
 .novel-todo-text.is-done {
   text-decoration: line-through;
   opacity: 0.5;
+}
+
+.novel-todo-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .novel-todo-source {
@@ -690,9 +840,145 @@ textarea.novel-board-field-input {
   white-space: nowrap;
 }
 
-.novel-todo-add-select {
-  font-size: 0.75em;
-  max-width: 130px;
+.novel-todo-deadline {
+  font-size: 0.72em;
+  max-width: 120px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.novel-todo-deadline:hover,
+.novel-todo-deadline:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.novel-todo-subtask-toggle {
+  font-size: 0.72em;
+  cursor: pointer;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.novel-todo-subtask-toggle:hover {
+  opacity: 1;
+}
+
+.novel-todo-subtask-add-btn,
+.novel-todo-open-btn {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.novel-todo-subtask-add-btn:hover,
+.novel-todo-open-btn:hover {
+  opacity: 1;
+  color: var(--interactive-accent, #7c3aed);
+}
+.novel-todo-subtask-add-btn svg,
+.novel-todo-open-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.novel-todo-subtask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 2px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--background-modifier-border);
+}
+.novel-todo-subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.novel-todo-subtask-checkbox {
+  flex-shrink: 0;
+}
+.novel-todo-subtask-text {
+  flex: 1;
+  font-size: 0.85em;
+}
+.novel-todo-subtask-text.is-done {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+.novel-todo-subtask-delete {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+.novel-todo-subtask-delete:hover {
+  opacity: 1;
+  color: var(--text-error);
+}
+.novel-todo-subtask-delete svg {
+  width: 12px;
+  height: 12px;
+}
+.novel-todo-subtask-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.novel-todo-subtask-add-input {
+  flex: 1;
+  font-size: 0.85em;
+  padding: 2px 6px;
+}
+
+.novel-todo-recurrence-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px 1px 3px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  opacity: 0.6;
+}
+.novel-todo-recurrence-wrap:hover,
+.novel-todo-recurrence-wrap.is-active {
+  opacity: 1;
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
+}
+.novel-todo-recurrence-wrap.is-active {
+  color: var(--interactive-accent, #7c3aed);
+}
+.novel-todo-recurrence-icon svg {
+  width: 11px;
+  height: 11px;
+}
+.novel-todo-recurrence {
+  font-size: 0.72em;
+  width: 52px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* Same urgency treatment as the board's inline todo rows — see there for why
+   both background and border are set explicitly. */
+.novel-todo-row-due-soon {
+  background: rgba(224, 168, 0, 0.16);
+  border-left-color: var(--text-warning, #e0a800) !important;
+}
+.novel-todo-row-overdue {
+  background: rgba(220, 38, 38, 0.16);
+  border-left-color: var(--text-error, #dc2626) !important;
 }
 
 .novel-character-list {
@@ -728,20 +1014,77 @@ textarea.novel-board-field-input {
   opacity: 0.4;
 }
 
-.novel-todo-remove-btn {
+.novel-todo-remove-btn,
+.novel-todo-delete-btn {
   display: inline-flex;
   cursor: pointer;
   opacity: 0.45;
   padding: 2px;
   flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 3px;
 }
-.novel-todo-remove-btn:hover {
+.novel-todo-remove-btn:hover,
+.novel-todo-delete-btn:hover {
   opacity: 1;
   color: var(--text-error);
 }
-.novel-todo-remove-btn svg {
+.novel-todo-remove-btn svg,
+.novel-todo-delete-btn svg {
   width: 13px;
   height: 13px;
+}
+
+.novel-todo-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 700px) {
+  .novel-todo-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.novel-todo-column-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.novel-todo-column-header h4 {
+  margin: 0;
+}
+.novel-todo-open-private-btn {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 2px;
+}
+.novel-todo-open-private-btn:hover {
+  opacity: 1;
+  color: var(--interactive-accent, #7c3aed);
+}
+.novel-todo-open-private-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.novel-todo-roman-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.novel-todo-roman-filter {
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.85em;
+}
+.novel-todo-group-count {
+  opacity: 0.6;
+  font-weight: 400;
 }
 
 .novel-todo-group-header {
@@ -773,6 +1116,11 @@ textarea.novel-board-field-input {
 
 .novel-todo-empty {
   opacity: 0.7;
+}
+
+.novel-todo-loading {
+  opacity: 0.6;
+  font-style: italic;
 }
 
 /* ---------------------------------------------------------------------- */

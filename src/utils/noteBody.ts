@@ -1,4 +1,4 @@
-import { TodoEntry } from "../types";
+import { TodoEntry, TodoSubtask } from "../types";
 
 // ---------------------------------------------------------------------------
 // Structure notes split their body into two zones:
@@ -178,7 +178,15 @@ function withThreadsSection(body: string, entries: Map<string, string>): string 
 // `- [ ] Text (high) ^id` (checkbox, free text, an optional priority marker
 // — "(high)" / "(low)", omitted for the medium default — and a block-id
 // anchor used to address a specific entry for done/priority toggling
-// without relying on line position). Plain ASCII markers on purpose: the
+// without relying on line position). A todo may be followed by its own
+// indented sub-checklist — `  - [ ] Subtask text ^id` — for breaking a
+// short-titled todo down into concrete steps; each subtask has its own
+// `^id` and done state, tracked independently of the parent. Any
+// contiguous indented checklist lines right after a todo line belong to
+// it; a blank line doesn't end the block (only a new top-level `- [ ]`
+// line, or the end of the section, does). A todo can also carry a
+// `(every: Nd)` recurrence marker (see setTodoDone() in todos.ts for what
+// checking one off actually does). Plain ASCII markers on purpose: the
 // original emoji markers (⏫/🔽) hit a classic UTF-16 trap — 🔽 is an
 // astral-plane character (two code units), so trimming it with a
 // one-unit slice left a lone surrogate behind, which then accumulated a
@@ -194,6 +202,10 @@ function withThreadsSection(body: string, entries: Map<string, string>): string 
 
 const TODO_PRIORITY_MARKER: Record<TodoEntry["priority"], string> = { high: " (high)", medium: "", low: " (low)" };
 const TODO_LINE_RE = /^-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
+// Same shape as TODO_LINE_RE but requires leading indentation, so a subtask
+// line never matches as a new top-level todo (TODO_LINE_RE anchors at
+// column 0). No priority/deadline markers — subtasks are plain steps.
+const SUBTASK_LINE_RE = /^\s+-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
 
 /** Generates a short, unique-enough id to address one todo line for
  * done/priority toggling (see `^id` in TODO_LINE_RE). */
@@ -201,14 +213,27 @@ export function generateTodoId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Strips priority markers (current and legacy) plus any surrogate/replace-
- * ment-char debris off the end of a todo's text. The outermost (rightmost)
- * recognized marker is the newest, so the first one found wins; older ones
- * underneath are stripped without changing the priority again. */
-function stripPriorityMarkers(raw: string): { text: string; priority: TodoEntry["priority"] } {
+const DEADLINE_MARKER_RE = /\s\(due:\s*(\d{4}-\d{2}-\d{2})\)$/;
+const RECURRENCE_MARKER_RE = /\s\(every:\s*(\d+)d\)$/;
+
+/** Strips priority markers (current and legacy), a deadline marker, a
+ * recurrence marker, and any surrogate/replacement-char debris off the end
+ * of a todo's text — in whatever order they appear, so hand-typed lines
+ * aren't picky about it. The outermost (rightmost) recognized priority
+ * marker is the newest, so the first one found wins; older ones underneath
+ * are stripped without changing the priority again. Same idea for the
+ * deadline/recurrence markers. */
+function stripTodoMarkers(raw: string): {
+  text: string;
+  priority: TodoEntry["priority"];
+  deadline: string | null;
+  recurrenceDays: number | null;
+} {
   let text = raw;
   let priority: TodoEntry["priority"] = "medium";
   let priorityFound = false;
+  let deadline: string | null = null;
+  let recurrenceDays: number | null = null;
   const take = (p: TodoEntry["priority"], len: number) => {
     if (!priorityFound) {
       priority = p;
@@ -219,6 +244,18 @@ function stripPriorityMarkers(raw: string): { text: string; priority: TodoEntry[
 
   for (;;) {
     text = text.trimEnd();
+    const dueMatch = text.match(DEADLINE_MARKER_RE);
+    if (dueMatch) {
+      if (deadline === null) deadline = dueMatch[1];
+      text = text.slice(0, -dueMatch[0].length);
+      continue;
+    }
+    const everyMatch = text.match(RECURRENCE_MARKER_RE);
+    if (everyMatch) {
+      if (recurrenceDays === null) recurrenceDays = parseInt(everyMatch[1], 10);
+      text = text.slice(0, -everyMatch[0].length);
+      continue;
+    }
     if (text.endsWith("(high)")) take("high", 6);
     else if (text.endsWith("(low)")) take("low", 5);
     else if (text.endsWith("⏫")) take("high", 1); // BMP char, one code unit
@@ -236,48 +273,65 @@ function stripPriorityMarkers(raw: string): { text: string; priority: TodoEntry[
       else break;
     }
   }
-  return { text, priority };
+  return { text, priority, deadline, recurrenceDays };
 }
 
 function parseTodoLine(line: string): TodoEntry | null {
   const m = line.match(TODO_LINE_RE);
   if (!m) return null;
   const done = m[1].toLowerCase() === "x";
-  const { text, priority } = stripPriorityMarkers(m[2].trim());
+  const { text, priority, deadline, recurrenceDays } = stripTodoMarkers(m[2].trim());
   // A hand-typed checklist line (no plugin-added `^id` yet) still needs one
   // to be addressable — assign it lazily on first read.
   const id = m[3] ?? generateTodoId();
-  return { id, text, done, priority };
+  return { id, text, done, priority, deadline, subtasks: [], recurrenceDays };
+}
+
+function parseSubtaskLine(line: string): TodoSubtask | null {
+  const m = line.match(SUBTASK_LINE_RE);
+  if (!m) return null;
+  const done = m[1].toLowerCase() === "x";
+  const text = m[2].trim();
+  const id = m[3] ?? generateTodoId();
+  return { id, text, done };
+}
+
+function serializeTodoLine(entry: TodoEntry): string {
+  const deadlinePart = entry.deadline ? ` (due: ${entry.deadline})` : "";
+  const recurrencePart = entry.recurrenceDays ? ` (every: ${entry.recurrenceDays}d)` : "";
+  const parentLine = `- [${entry.done ? "x" : " "}] ${entry.text}${deadlinePart}${recurrencePart}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
+  return [parentLine, ...entry.subtasks.map(serializeSubtaskLine)].join("\n");
+}
+
+function serializeSubtaskLine(sub: TodoSubtask): string {
+  return `  - [${sub.done ? "x" : " "}] ${sub.text} ^${sub.id}`;
 }
 
 /** True if the "## Todos" section needs a normalizing rewrite before its
  * entries can be addressed reliably: a line without a `^id` anchor (its
  * freshly generated id only exists in memory until written), or leftover
  * legacy emoji markers / surrogate debris (see stripPriorityMarkers).
- * Checked as a round-trip: a line that doesn't reserialize to itself
- * (given its own anchor id) isn't canonical yet. Once rewritten, every
- * line round-trips, so this stays false and reads never write again. */
+ * Checked as a full round-trip against readTodos()'s own output rather than
+ * line-by-line, since one entry can now span multiple lines (its subtasks).
+ * Once rewritten, every line round-trips, so this stays false and reads
+ * never write again. */
 export function todosNeedRewrite(body: string): boolean {
   const { tail } = splitBody(body);
   const tailLines = tail.split("\n");
   const range = findSectionRange(tailLines, TODOS_HEADING);
   if (!range) return false;
-  for (let i = range.start + 1; i < range.end; i++) {
-    const line = tailLines[i];
-    if (!line.trim()) continue;
-    const entry = parseTodoLine(line);
-    if (!entry) continue;
-    if (!/\^[a-zA-Z0-9-]+\s*$/.test(line)) return true; // in-memory id, not persisted yet
-    if (serializeTodoLine(entry) !== line) return true; // legacy markers/debris/odd spacing
-  }
-  return false;
+
+  const originalLines = tailLines.slice(range.start + 1, range.end).filter((l) => l.trim());
+  const expectedLines = readTodos(body).flatMap((e) => serializeTodoLine(e).split("\n"));
+  if (originalLines.length !== expectedLines.length) return true;
+  return originalLines.some((line, i) => line !== expectedLines[i]);
 }
 
-function serializeTodoLine(entry: TodoEntry): string {
-  return `- [${entry.done ? "x" : " "}] ${entry.text}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
-}
-
-/** Reads every todo out of a structure note's body "## Todos" section. */
+/** Reads every todo (and its subtasks, if any) out of a structure note's
+ * body "## Todos" section. Indented checklist lines right after a todo
+ * line are that todo's subtasks; anything else (including a blank line)
+ * doesn't reset which todo new subtask lines attach to, so a stray blank
+ * line inside the block is harmless. */
 export function readTodos(body: string): TodoEntry[] {
   const { tail } = splitBody(body);
   const tailLines = tail.split("\n");
@@ -285,7 +339,13 @@ export function readTodos(body: string): TodoEntry[] {
   if (!range) return [];
   const entries: TodoEntry[] = [];
   for (let i = range.start + 1; i < range.end; i++) {
-    const entry = parseTodoLine(tailLines[i]);
+    const line = tailLines[i];
+    const subtask = parseSubtaskLine(line);
+    if (subtask && entries.length > 0) {
+      entries[entries.length - 1].subtasks.push(subtask);
+      continue;
+    }
+    const entry = parseTodoLine(line);
     if (entry) entries.push(entry);
   }
   return entries;

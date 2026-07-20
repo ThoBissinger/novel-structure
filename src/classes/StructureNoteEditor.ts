@@ -5,8 +5,20 @@ import { characterCandidateRank } from "../utils/characters";
 import { extractLinkBasename } from "../utils/files";
 import { locationCandidateRank } from "../utils/locations";
 import { getThreadDevelopmentForScene, removeThreadFromScene, threadFieldNames, ThreadKind } from "../utils/threads";
-import { addTodo, nextPriority, readTodosForFile, removeTodo, setTodoDone, setTodoPriority } from "../utils/todos";
+import {
+  addTodo,
+  deadlineUrgency,
+  nextPriority,
+  readTodosForFile,
+  removeTodo,
+  setTodoDeadline,
+  setTodoDone,
+  setTodoPriority,
+  setTodoText,
+  sortTodosForDisplay,
+} from "../utils/todos";
 import { addDropdownField, addLinkListField, addTextAreaField, addTextField, renderLinkifiedText } from "./FieldBuilders";
+import { TodoAddModal } from "./modals/TodoAddModal";
 import { ThreadEditorModal } from "./modals/ThreadEditorModal";
 
 // ---------------------------------------------------------------------------
@@ -174,13 +186,30 @@ export class StructureNoteEditor {
 
   private renderTodosSection(form: HTMLElement) {
     const section = form.createEl("div", { cls: "novel-board-todos" });
-    section.createEl("div", { text: "Todos", cls: "novel-board-field-label" });
+    const header = section.createEl("div", { cls: "novel-board-todos-header" });
+    header.createEl("div", { text: "Todos", cls: "novel-board-field-label" });
+    // Hand-typing a new todo line in the raw note works, but it's easy to
+    // get the `^id` anchor / markers wrong — this opens the same dialog
+    // the Todo center uses (full priority/deadline control), pre-targeted
+    // at this file, as a safer alternative to the quick inline add row
+    // below (which only takes text + deadline).
+    const addModalBtn = header.createEl("span", { cls: "novel-board-todo-add-modal-btn" });
+    setIcon(addModalBtn, "list-plus");
+    addModalBtn.setAttr("aria-label", "Add a todo… (dialog, with priority)");
+    addModalBtn.onclick = (evt) => {
+      evt.stopPropagation();
+      const fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter;
+      const label = fm?.title || this.file.basename;
+      new TodoAddModal(this.app, this.plugin, [{ file: this.file, label }], 0, () => this.onChange()).open();
+    };
 
     const list = section.createEl("div", { cls: "novel-board-todo-list" });
     readTodosForFile(this.app, this.file).then((entries) => {
-      entries.forEach((entry) => {
+      sortTodosForDisplay(entries).forEach((entry) => {
         const row = list.createEl("div", { cls: "novel-board-todo-row" });
         row.style.borderLeftColor = PRIORITY_COLORS[entry.priority] ?? PRIORITY_COLORS.medium;
+        const urgency = deadlineUrgency(entry.deadline);
+        if (urgency) row.addClass(`novel-board-todo-row-${urgency}`);
 
         const checkbox = row.createEl("input", { type: "checkbox" });
         checkbox.checked = entry.done;
@@ -194,8 +223,55 @@ export class StructureNoteEditor {
           this.onChange();
         };
 
-        const text = row.createEl("span", { text: entry.text, cls: "novel-board-todo-text" });
+        const text = row.createEl("input", { type: "text", cls: "novel-board-todo-text" });
+        text.value = entry.text;
         if (entry.done) text.addClass("is-done");
+        text.onclick = (evt) => evt.stopPropagation();
+        text.addEventListener("blur", async () => {
+          const newText = text.value.trim();
+          if (!newText || newText === entry.text) return;
+          await setTodoText(
+            this.app,
+            { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
+            newText
+          );
+          this.onChange();
+        });
+        text.addEventListener("keydown", (evt) => {
+          evt.stopPropagation();
+          if (evt.key === "Enter") text.blur();
+        });
+
+        // Read-only here (a new StructureNoteEditor instance is created on
+        // every render, so there's no stable place to track "expanded"
+        // state for inline editing) — full subtask management lives in the
+        // Todo Center modal.
+        if (entry.subtasks.length > 0) {
+          const done = entry.subtasks.filter((s) => s.done).length;
+          row.createEl("span", {
+            text: `${done}/${entry.subtasks.length}`,
+            cls: "novel-board-todo-subtask-badge",
+            attr: { title: "Subtasks — manage them in the Todo center" },
+          });
+        }
+
+        const deadlineInput = row.createEl("input", { cls: "novel-board-todo-deadline", attr: { type: "date" } });
+        const initialDeadline = entry.deadline ?? "";
+        deadlineInput.value = initialDeadline;
+        deadlineInput.onclick = (evt) => evt.stopPropagation();
+        // Committing on blur rather than "change" — a native date input can
+        // fire "change" mid-typing, as soon as a complete date is formed
+        // while still focused, which would blow away the field (and the
+        // rest of the card) on every keystroke instead of once you're done.
+        deadlineInput.addEventListener("blur", async () => {
+          if (deadlineInput.value === initialDeadline) return;
+          await setTodoDeadline(
+            this.app,
+            { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
+            deadlineInput.value || null
+          );
+          this.onChange();
+        });
 
         const chip = row.createEl("span", { text: entry.priority, cls: "novel-board-todo-priority-chip" });
         chip.style.color = PRIORITY_COLORS[entry.priority] ?? PRIORITY_COLORS.medium;
@@ -222,13 +298,16 @@ export class StructureNoteEditor {
     const addRow = section.createEl("div", { cls: "novel-board-todo-add-row" });
     const input = addRow.createEl("input", { cls: "novel-board-field-input", attr: { placeholder: "Add a todo…" } });
     input.onclick = (evt) => evt.stopPropagation();
+    const deadlineInput = addRow.createEl("input", { cls: "novel-board-todo-deadline-input", attr: { type: "date" } });
+    deadlineInput.onclick = (evt) => evt.stopPropagation();
     const addBtn = addRow.createEl("span", { cls: "novel-board-chip-add-btn" });
     setIcon(addBtn, "plus");
     const submit = async () => {
       const text = input.value.trim();
       if (!text) return;
-      await addTodo(this.app, this.file, text, "medium");
+      await addTodo(this.app, this.file, text, "medium", deadlineInput.value || null);
       input.value = "";
+      deadlineInput.value = "";
       this.onChange();
     };
     addBtn.onclick = (evt) => {

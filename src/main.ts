@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { MarkdownView, Notice, Plugin, TFile, debounce } from "obsidian";
+import { MarkdownView, Menu, Notice, Plugin, TFile, debounce } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   FrontmatterDisplayMode,
@@ -20,7 +20,9 @@ import { MetadataEditorModal } from "./classes/modals/MetadataEditorModal";
 import { RootNoteModal } from "./classes/modals/RootNoteModal";
 import { StatusModal } from "./classes/modals/StatusModal";
 import { ThreadEditorModal } from "./classes/modals/ThreadEditorModal";
+import { TodoAddModal } from "./classes/modals/TodoAddModal";
 import { TodoCenterModal } from "./classes/modals/TodoCenterModal";
+import { TodoEditModal } from "./classes/modals/TodoEditModal";
 import { NovelStructureSettingTab } from "./classes/settings/NovelStructureSettingTab";
 import { NarrativeChartView } from "./classes/views/NarrativeChartView";
 import { NovelBoardView } from "./classes/views/NovelBoardView";
@@ -28,7 +30,7 @@ import { StructureView } from "./classes/views/StructureView";
 import { splitBody } from "./utils/noteBody";
 import { findRootNote, updateStructureMetadata } from "./utils/rootNote";
 import { isThreadFile, refreshThreadTrackerQuery, regenerateThreadsBase, ThreadKind } from "./utils/threads";
-import { todayDate, tomorrowDate } from "./utils/todos";
+import { readTodosForFile, todayDate, tomorrowDate } from "./utils/todos";
 
 // Obsidian's internal class name for the Properties/frontmatter widget isn't
 // officially documented and can differ by version/mode — these are tried in
@@ -47,6 +49,8 @@ interface StructureViewActions {
   frontmatterButtons: Record<FrontmatterDisplayMode, HTMLElement>;
   editDataBtn: HTMLElement;
   conflictBtn: HTMLElement;
+  addTodoBtn: HTMLElement;
+  editTodoBtn: HTMLElement;
 }
 
 // A direct 3-way selector, not a cycle — each mode is independently
@@ -384,6 +388,8 @@ export default class NovelStructurePlugin extends Plugin {
       Object.values(actions.frontmatterButtons).forEach((btn) => btn.remove());
       actions.editDataBtn.remove();
       actions.conflictBtn.remove();
+      actions.addTodoBtn.remove();
+      actions.editTodoBtn.remove();
       view.contentEl.removeClass("novel-structure-hide-frontmatter");
       const anchor = this.findPropertiesAnchor(view);
       if (anchor) anchor.style.display = "";
@@ -502,6 +508,16 @@ export default class NovelStructurePlugin extends Plugin {
       if (view.file) new ThreadEditorModal(this.app, this, "conflict", null, view.file).open();
     };
 
+    const addTodoBtn = buttonRow.createEl("button", { text: "Add todo", cls: "novel-structure-inline-btn" });
+    addTodoBtn.onclick = () => {
+      if (view.file) this.openTodoAddModalFor(view.file);
+    };
+
+    const editTodoBtn = buttonRow.createEl("button", { text: "Edit todo", cls: "novel-structure-inline-btn" });
+    editTodoBtn.onclick = (evt) => {
+      if (view.file) this.openTodoEditPickerFor(view.file, evt);
+    };
+
     bar.createDiv({ cls: "novel-structure-info-block" });
 
     const anchor = this.findPropertiesAnchor(view);
@@ -512,6 +528,48 @@ export default class NovelStructurePlugin extends Plugin {
       contentContainer.prepend(bar);
     }
     this.inlineBars.set(view, bar);
+  }
+
+  /** Opens the same "New todo" dialog the Todo center uses, fixed to
+   * `file` — the entry point for adding a todo while actually sitting in
+   * the scene/chapter's own editor, instead of switching to the Todo
+   * center or the board view first. */
+  private openTodoAddModalFor(file: TFile) {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const label = fm?.title || file.basename;
+    new TodoAddModal(this.app, this, [{ file, label }], 0, () => {}).open();
+  }
+
+  /** Editing an existing todo while sitting in the raw note editor: the
+   * checklist lines there are plain Obsidian-rendered markdown, not our own
+   * DOM, so there's nowhere to hang a per-line "edit" click — this reads
+   * the file's open todos and either opens the edit dialog directly (one
+   * todo) or shows a quick picker menu (more than one) instead. */
+  private async openTodoEditPickerFor(file: TFile, evt: MouseEvent) {
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const label = fm?.title || file.basename;
+    const entries = (await readTodosForFile(this.app, file)).filter((e) => !e.done);
+    if (entries.length === 0) {
+      new Notice("No open todos in this note yet.");
+      return;
+    }
+    const toItem = (id: string) => {
+      const entry = entries.find((e) => e.id === id)!;
+      return { ...entry, source: "scene" as const, filePath: file.path, fileTitle: label };
+    };
+    if (entries.length === 1) {
+      new TodoEditModal(this.app, this, toItem(entries[0].id), () => {}).open();
+      return;
+    }
+    const menu = new Menu();
+    entries.forEach((entry) => {
+      menu.addItem((item) =>
+        item.setTitle(entry.text).onClick(() => {
+          new TodoEditModal(this.app, this, toItem(entry.id), () => {}).open();
+        })
+      );
+    });
+    menu.showAtMouseEvent(evt);
   }
 
   /** Runs both action-refreshers together — a view is either a structure
@@ -545,7 +603,13 @@ export default class NovelStructurePlugin extends Plugin {
       const conflictBtn = view.addAction("git-branch", "Threads", () => {
         if (view.file) new ThreadEditorModal(this.app, this, "conflict", null, view.file).open();
       });
-      this.structureActions.set(view, { frontmatterButtons, editDataBtn, conflictBtn });
+      const addTodoBtn = view.addAction("list-plus", "Add todo", () => {
+        if (view.file) this.openTodoAddModalFor(view.file);
+      });
+      const editTodoBtn = view.addAction("pencil", "Edit todo", (evt) => {
+        if (view.file) this.openTodoEditPickerFor(view.file, evt);
+      });
+      this.structureActions.set(view, { frontmatterButtons, editDataBtn, conflictBtn, addTodoBtn, editTodoBtn });
       this.insertInlineBar(view, file!);
       this.applyFrontmatterVisibility(view);
       this.maybeApplyDefaultTextFold(view);
@@ -553,6 +617,7 @@ export default class NovelStructurePlugin extends Plugin {
       Object.values(existing.frontmatterButtons).forEach((btn) => btn.remove());
       existing.editDataBtn.remove();
       existing.conflictBtn.remove();
+      existing.addTodoBtn.remove();
       this.structureActions.delete(view);
       this.inlineBars.get(view)?.remove();
       this.inlineBars.delete(view);

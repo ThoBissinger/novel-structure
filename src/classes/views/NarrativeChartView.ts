@@ -79,13 +79,13 @@ export class NarrativeChartView extends ItemView {
 
     const columns = collectChartColumns(this.app, this.plugin.settings, this.options);
     if (columns.length === 0) {
-      container.createEl("p", {
-        text:
-          this.options.mode === "events"
-            ? "No events with characters found — create event threads (thread editor) and fill in their characters first."
-            : "No scenes with characters found — fill in focus/side characters on your scenes first.",
-        cls: "novel-narrative-empty",
-      });
+      const emptyText =
+        this.options.mode === "events"
+          ? "No events with characters found — create event threads (thread editor) and fill in their characters first."
+          : this.options.mode === "conflicts"
+            ? "No conflicts with characters found — create conflict threads (thread editor) and fill in their characters first."
+            : "No scenes with characters found — fill in focus/side characters on your scenes first.";
+      container.createEl("p", { text: emptyText, cls: "novel-narrative-empty" });
       return;
     }
     const layout = layoutNarrativeChart(columns);
@@ -102,6 +102,7 @@ export class NarrativeChartView extends ItemView {
       [
         ["scenes", "Scenes"],
         ["events", "Events"],
+        ["conflicts", "Conflicts"],
       ] as [ChartMode, string][]
     ).forEach(([mode, label]) => {
       const btn = modeGroup.createEl("button", { text: label, cls: "novel-structure-inline-btn novel-structure-mode-btn" });
@@ -150,8 +151,10 @@ export class NarrativeChartView extends ItemView {
       toggle("Only with text", this.options.withTextOnly, () => (this.options.withTextOnly = !this.options.withTextOnly));
     }
 
+    const minLabel =
+      this.options.mode === "events" ? "Min. events:" : this.options.mode === "conflicts" ? "Min. conflicts:" : "Min. scenes:";
     const minWrap = bar.createDiv({ cls: "novel-narrative-min-wrap" });
-    minWrap.createSpan({ text: this.options.mode === "events" ? "Min. events:" : "Min. scenes:" });
+    minWrap.createSpan({ text: minLabel });
     const minInput = minWrap.createEl("input", { type: "number", attr: { min: "1", max: "99" } });
     minInput.value = String(this.options.minAppearances);
     minInput.onchange = () => {
