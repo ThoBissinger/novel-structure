@@ -64,11 +64,20 @@ export interface NovelStructureSettings {
   structureFolder: string; // vault-relative path, everything lives here
   wordsPerPage: number;
   headingMapping: HeadingMappingEntry[];
-  privateTodoFile: string; // file name (inside structureFolder) for private todos
+  privateTodoFile: string; // file name (inside structureFolder) for private todos — a JSON file, see privateTodoStore.ts
+  // Completed private todos older than this many days are hidden behind the
+  // "Archived" tag in the Manage todos view's Completed section. null/0 =
+  // never auto-archive (still shown under "Completed", just never tagged).
+  privateTodoArchiveDays: number | null;
   dailySelections: Record<string, DailySelection>; // date -> selection
   typeLabels: Record<StructureType, string>; // display/filename label per structure type
   includeTypeInFileName: boolean; // prefix new file names with their type label, e.g. "Scene - Title"
   boardVisibleDepth: StructureType; // deepest level shown as a card grid by default on the novel board; anything deeper needs focusing a card to reveal
+  // Default depth the Roman "By scene" tree in Manage todos starts pre-expanded
+  // to (e.g. "chapter" auto-opens sections so their chapters are visible right
+  // away); a node manually toggled afterwards keeps that override regardless
+  // of this setting until it's changed again.
+  todoTreeVisibleDepth: StructureType;
   defaultFrontmatterDisplay: FrontmatterDisplayMode; // starting point when opening a structure note; overridable per-note via the toggle button
   defaultTextFolded: boolean; // start with the "## Text" section collapsed when opening a structure note (unfold stays until the file is next opened)
   structureViewShowTypeLabels: boolean; // prefix each row in the structure view with its type label, e.g. "Chapter - Title"
@@ -112,11 +121,13 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
     { level: 3, type: "subchapter" },
     { level: 4, type: "scene" },
   ],
-  privateTodoFile: "Private-Todos.md",
+  privateTodoFile: "Private-Todos.json",
+  privateTodoArchiveDays: null,
   dailySelections: {},
   typeLabels: { ...DEFAULT_TYPE_LABELS },
   includeTypeInFileName: true,
   boardVisibleDepth: "subchapter",
+  todoTreeVisibleDepth: "section",
   defaultFrontmatterDisplay: "hidden",
   defaultTextFolded: false,
   structureViewShowTypeLabels: true,
@@ -143,36 +154,52 @@ export const PRIORITY_COLORS: Record<Priority, string> = {
 
 /** A checklist item nested under a todo — for breaking a short-titled todo
  * down into concrete implementation steps, tracked independently of the
- * parent's own done state. */
+ * parent's own status. */
 export interface TodoSubtask {
   id: string;
   text: string;
   done: boolean;
 }
 
+export type TodoStatus = "open" | "in_progress" | "done";
+
+export const TODO_STATUS_ORDER: TodoStatus[] = ["open", "in_progress", "done"];
+
+export const TODO_STATUS_LABELS: Record<TodoStatus, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  done: "Done",
+};
+
 /** Shape of one entry in a note's frontmatter `todos` array. */
 export interface TodoEntry {
   id: string;
   text: string;
-  done: boolean;
+  status: TodoStatus;
   priority: Priority;
   deadline: string | null; // "YYYY-MM-DD", or null if unset
   subtasks: TodoSubtask[];
   // Recurring todos (e.g. "do the laundry"): checking one off resets it to
   // open and pushes its deadline this many days out from today, instead of
-  // staying done — see setTodoDone(). null = a normal, one-off todo.
+  // staying done — see setTodoStatus(). null = a normal, one-off todo.
   recurrenceDays: number | null;
+  // "YYYY-MM-DD" the todo was last marked done, null while not done. Set/
+  // cleared by setTodoStatus(); a recurring todo's auto-reset leaves it
+  // untouched since it never really completes. Used for the private-todo
+  // archive.
+  doneDate: string | null;
 }
 
 /** A todo resolved with its file context, for display/UI purposes. */
 export interface TodoItem {
   id: string;
   text: string;
-  done: boolean;
+  status: TodoStatus;
   priority: Priority;
   deadline: string | null;
   subtasks: TodoSubtask[];
   recurrenceDays: number | null;
+  doneDate: string | null;
   source: "scene" | "private";
   filePath: string;
   fileTitle: string;

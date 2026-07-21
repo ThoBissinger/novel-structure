@@ -1,4 +1,4 @@
-import { TodoEntry, TodoSubtask } from "../types";
+import { TodoEntry, TodoStatus, TodoSubtask } from "../types";
 
 // ---------------------------------------------------------------------------
 // Structure notes split their body into two zones:
@@ -201,11 +201,25 @@ function withThreadsSection(body: string, entries: Map<string, string>): string 
 // ---------------------------------------------------------------------------
 
 const TODO_PRIORITY_MARKER: Record<TodoEntry["priority"], string> = { high: " (high)", medium: "", low: " (low)" };
-const TODO_LINE_RE = /^-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
+// Checkbox char: " " = open, "/" = in progress (same convention as the
+// Obsidian Tasks community plugin, so these lines still read sensibly
+// there), "x"/"X" = done.
+const TODO_LINE_RE = /^-\s\[([ xX/])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
 // Same shape as TODO_LINE_RE but requires leading indentation, so a subtask
 // line never matches as a new top-level todo (TODO_LINE_RE anchors at
-// column 0). No priority/deadline markers — subtasks are plain steps.
+// column 0). No priority/deadline markers, and only open/done — subtasks
+// are plain steps, no in-progress state.
 const SUBTASK_LINE_RE = /^\s+-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
+
+function statusToChar(status: TodoStatus): string {
+  return status === "done" ? "x" : status === "in_progress" ? "/" : " ";
+}
+
+function charToStatus(ch: string): TodoStatus {
+  if (ch.toLowerCase() === "x") return "done";
+  if (ch === "/") return "in_progress";
+  return "open";
+}
 
 /** Generates a short, unique-enough id to address one todo line for
  * done/priority toggling (see `^id` in TODO_LINE_RE). */
@@ -279,12 +293,15 @@ function stripTodoMarkers(raw: string): {
 function parseTodoLine(line: string): TodoEntry | null {
   const m = line.match(TODO_LINE_RE);
   if (!m) return null;
-  const done = m[1].toLowerCase() === "x";
+  const status = charToStatus(m[1]);
   const { text, priority, deadline, recurrenceDays } = stripTodoMarkers(m[2].trim());
   // A hand-typed checklist line (no plugin-added `^id` yet) still needs one
   // to be addressable — assign it lazily on first read.
   const id = m[3] ?? generateTodoId();
-  return { id, text, done, priority, deadline, subtasks: [], recurrenceDays };
+  // doneDate only matters for the private JSON todo store (see
+  // privateTodoStore.ts) — scene todos never carry it, this is just here
+  // to satisfy the shared TodoEntry shape.
+  return { id, text, status, priority, deadline, subtasks: [], recurrenceDays, doneDate: null };
 }
 
 function parseSubtaskLine(line: string): TodoSubtask | null {
@@ -299,7 +316,7 @@ function parseSubtaskLine(line: string): TodoSubtask | null {
 function serializeTodoLine(entry: TodoEntry): string {
   const deadlinePart = entry.deadline ? ` (due: ${entry.deadline})` : "";
   const recurrencePart = entry.recurrenceDays ? ` (every: ${entry.recurrenceDays}d)` : "";
-  const parentLine = `- [${entry.done ? "x" : " "}] ${entry.text}${deadlinePart}${recurrencePart}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
+  const parentLine = `- [${statusToChar(entry.status)}] ${entry.text}${deadlinePart}${recurrencePart}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
   return [parentLine, ...entry.subtasks.map(serializeSubtaskLine)].join("\n");
 }
 

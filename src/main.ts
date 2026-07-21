@@ -21,8 +21,8 @@ import { RootNoteModal } from "./classes/modals/RootNoteModal";
 import { StatusModal } from "./classes/modals/StatusModal";
 import { ThreadEditorModal } from "./classes/modals/ThreadEditorModal";
 import { TodoAddModal } from "./classes/modals/TodoAddModal";
-import { TodoCenterModal } from "./classes/modals/TodoCenterModal";
 import { TodoEditModal } from "./classes/modals/TodoEditModal";
+import { TodoHubModal } from "./classes/modals/TodoHubModal";
 import { NovelStructureSettingTab } from "./classes/settings/NovelStructureSettingTab";
 import { NarrativeChartView } from "./classes/views/NarrativeChartView";
 import { NovelBoardView } from "./classes/views/NovelBoardView";
@@ -30,7 +30,7 @@ import { StructureView } from "./classes/views/StructureView";
 import { splitBody } from "./utils/noteBody";
 import { findRootNote, updateStructureMetadata } from "./utils/rootNote";
 import { isThreadFile, refreshThreadTrackerQuery, regenerateThreadsBase, ThreadKind } from "./utils/threads";
-import { readTodosForFile, todayDate, tomorrowDate } from "./utils/todos";
+import { migratePrivateTodoStoreIfNeeded, readTodosForFile, todayDate, tomorrowDate } from "./utils/todos";
 
 // Obsidian's internal class name for the Properties/frontmatter widget isn't
 // officially documented and can differ by version/mode — these are tried in
@@ -95,6 +95,18 @@ export default class NovelStructurePlugin extends Plugin {
     const loadStart = Date.now();
     console.debug("[novel-structure] onload start");
     await this.loadSettings();
+
+    // Deferred to onLayoutReady, not run immediately: `vault.getAbstractFileByPath`
+    // for a file that genuinely exists on disk can still return null while
+    // Obsidian is mid-startup indexing (workspace.layoutReady false) — same
+    // class of problem the vault/metadataCache event guards elsewhere in
+    // this file are already there to avoid. Calling it too early here
+    // silently "found no old file to migrate" even when there was one,
+    // flipping the setting to the new .json name while leaving the old
+    // .md file (and the real data in it) behind, untouched and unreferenced.
+    this.app.workspace.onLayoutReady(() => {
+      void migratePrivateTodoStoreIfNeeded(this);
+    });
 
     // Fire-and-forget, not awaited: binding a listening socket can stall for
     // reasons entirely outside this plugin's control (a Windows firewall
@@ -308,8 +320,14 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.addCommand({
       id: "novel-structure-open-todo-view",
-      name: "Open todo center",
-      callback: () => new TodoCenterModal(this.app, this).open(),
+      name: "Open todo planning",
+      callback: () => new TodoHubModal(this.app, this, "plan").open(),
+    });
+
+    this.addCommand({
+      id: "novel-structure-open-todo-management",
+      name: "Open todo management",
+      callback: () => new TodoHubModal(this.app, this, "manage").open(),
     });
 
     this.addCommand({
@@ -323,7 +341,7 @@ export default class NovelStructurePlugin extends Plugin {
       name: "Morning ritual: choose today's todos",
       callback: () =>
         new DailySelectionModal(this.app, this, todayDate(), () => {
-          new TodoCenterModal(this.app, this).open();
+          new TodoHubModal(this.app, this, "plan").open();
         }).open(),
     });
 
@@ -332,7 +350,7 @@ export default class NovelStructurePlugin extends Plugin {
       name: "Evening ritual: prepare tomorrow's todos",
       callback: () =>
         new DailySelectionModal(this.app, this, tomorrowDate(), () => {
-          new TodoCenterModal(this.app, this).open();
+          new TodoHubModal(this.app, this, "plan").open();
         }).open(),
     });
 
@@ -363,7 +381,7 @@ export default class NovelStructurePlugin extends Plugin {
     );
 
     this.addRibbonIcon("layout-list", "Open novel structure", () => this.activateStructureView());
-    this.addRibbonIcon("list-checks", "Open todo center", () => new TodoCenterModal(this.app, this).open());
+    this.addRibbonIcon("list-checks", "Open todo planning", () => new TodoHubModal(this.app, this, "plan").open());
     this.addRibbonIcon("layout-grid", "Open novel board", () => this.activateBoardView());
     this.addRibbonIcon("users", "Open character overview", () => new CharacterOverviewModal(this.app, this).open());
     this.addRibbonIcon("map-pin", "Open location overview", () => new LocationOverviewModal(this.app, this).open());
@@ -548,7 +566,7 @@ export default class NovelStructurePlugin extends Plugin {
   private async openTodoEditPickerFor(file: TFile, evt: MouseEvent) {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
     const label = fm?.title || file.basename;
-    const entries = (await readTodosForFile(this.app, file)).filter((e) => !e.done);
+    const entries = (await readTodosForFile(this.app, file)).filter((e) => e.status !== "done");
     if (entries.length === 0) {
       new Notice("No open todos in this note yet.");
       return;

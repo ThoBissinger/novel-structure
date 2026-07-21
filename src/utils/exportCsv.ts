@@ -53,7 +53,7 @@ function csvEscape(value: string): string {
 }
 
 function todosToText(todos: TodoEntry[] | undefined): string {
-  return (todos ?? []).map((t) => `${t.text}${t.done ? " [done]" : ""} (${t.priority})`).join(" | ");
+  return (todos ?? []).map((t) => `${t.text}${t.status !== "open" ? ` [${t.status}]` : ""} (${t.priority})`).join(" | ");
 }
 
 /** One row per structure file, in book order — the shared data source behind

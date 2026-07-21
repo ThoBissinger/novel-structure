@@ -37,14 +37,74 @@ export class TodoAddModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h2", { text: "New todo" });
 
-    if (this.targets.length > 1) {
+    // What kind of todo this is (private chore vs. manuscript) matters more
+    // than exactly which scene — with hundreds of scenes in a book, burying
+    // "Private" as one option in that same long dropdown made it easy to
+    // miss. So the two are split: a small Roman/Private toggle up front,
+    // and only when "Roman" is picked does a second dropdown appear to
+    // choose the actual scene/chapter.
+    const hasPrivateTarget = this.targets.some((t) => t.label === "Private");
+    const privateIndex = this.targets.findIndex((t) => t.label === "Private");
+    const sceneTargets = this.targets.map((t, i) => ({ t, i })).filter(({ t }) => t.label !== "Private");
+
+    let mode: "roman" | "private" =
+      this.targets.length > 1 && hasPrivateTarget && this.targets[this.targetIndex]?.label !== "Private"
+        ? "roman"
+        : "private";
+    const modeChangeListeners: (() => void)[] = [];
+
+    if (this.targets.length === 1) {
+      contentEl.createEl("p", { text: this.targets[0].label, cls: "setting-item-description" });
+    } else if (hasPrivateTarget) {
+      const modeGroup = contentEl.createDiv({ cls: "novel-structure-mode-group novel-todo-modal-mode-group" });
+      const scenePickerWrap = contentEl.createDiv();
+      const buttons: HTMLElement[] = [];
+
+      const refreshScenePicker = () => {
+        scenePickerWrap.empty();
+        scenePickerWrap.style.display = mode === "roman" ? "" : "none";
+        if (mode !== "roman" || sceneTargets.length === 0) return;
+        new Setting(scenePickerWrap).setName("Scene / chapter").addDropdown((dd) => {
+          sceneTargets.forEach(({ t, i }) => dd.addOption(String(i), t.label));
+          if (!sceneTargets.some(({ i }) => i === this.targetIndex)) this.targetIndex = sceneTargets[0].i;
+          dd.setValue(String(this.targetIndex));
+          dd.onChange((v) => (this.targetIndex = parseInt(v, 10)));
+        });
+      };
+
+      (
+        [
+          ["roman", "Roman"],
+          ["private", "Private"],
+        ] as ["roman" | "private", string][]
+      ).forEach(([m, label]) => {
+        const btn = modeGroup.createEl("button", {
+          text: label,
+          cls: "novel-structure-inline-btn novel-structure-mode-btn",
+        });
+        if (mode === m) btn.addClass("is-active");
+        btn.onclick = () => {
+          if (mode === m) return;
+          mode = m;
+          buttons.forEach((b) => b.removeClass("is-active"));
+          btn.addClass("is-active");
+          this.targetIndex = m === "private" ? privateIndex : (sceneTargets[0]?.i ?? privateIndex);
+          refreshScenePicker();
+          modeChangeListeners.forEach((fn) => fn());
+        };
+        buttons.push(btn);
+      });
+
+      refreshScenePicker();
+    } else {
+      // No "Private" among the targets (e.g. an edit picker scoped to one
+      // file's own todos) — the toggle wouldn't mean anything, fall back to
+      // a plain dropdown over whatever targets there are.
       new Setting(contentEl).setName("Where").addDropdown((dd) => {
         this.targets.forEach((t, i) => dd.addOption(String(i), t.label));
         dd.setValue(String(this.targetIndex));
         dd.onChange((v) => (this.targetIndex = parseInt(v, 10)));
       });
-    } else {
-      contentEl.createEl("p", { text: this.targets[0].label, cls: "setting-item-description" });
     }
 
     new Setting(contentEl).setName("Text").addText((t) => {
@@ -68,14 +128,17 @@ export class TodoAddModal extends Modal {
       });
 
     // Recurrence only makes sense for private todos (chores etc.), not for
-    // manuscript ones — only offered here when this modal was opened as a
-    // dedicated "+ Private todo" (single, fixed target). For the general
-    // picker, set it later from the Todo center if needed.
+    // manuscript ones — offered whenever "Private" is the current pick,
+    // whether that's a fixed single target ("+ Private todo") or the
+    // Roman/Private toggle above; hidden (not rebuilt) when switching back
+    // to Roman so an already-entered value doesn't just vanish.
     const isPrivateOnly = this.targets.length === 1 && this.targets[0].label === "Private";
-    if (isPrivateOnly) {
-      new Setting(contentEl)
+    if (isPrivateOnly || hasPrivateTarget) {
+      const recurrenceSetting = new Setting(contentEl)
         .setName("Repeat every … days")
-        .setDesc("Optional. For chores like laundry: checking it off resets it to open and pushes the deadline out this many days, instead of staying done.")
+        .setDesc(
+          "Optional. For chores like laundry: checking it off resets it to open and pushes the deadline out this many days, instead of staying done."
+        )
         .addText((t) => {
           t.inputEl.type = "number";
           t.inputEl.min = "1";
@@ -84,6 +147,13 @@ export class TodoAddModal extends Modal {
             this.recurrenceDays = Number.isFinite(n) && n >= 1 ? n : null;
           });
         });
+      if (hasPrivateTarget && this.targets.length > 1) {
+        const updateVisibility = () => {
+          recurrenceSetting.settingEl.style.display = mode === "private" ? "" : "none";
+        };
+        updateVisibility();
+        modeChangeListeners.push(updateVisibility);
+      }
     }
 
     new Setting(contentEl).setName("Subtasks").setDesc("Optional. Break it down into concrete steps up front.");

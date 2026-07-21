@@ -1,8 +1,9 @@
 import { App, Notice, TFile } from "obsidian";
 import type NovelStructurePlugin from "../main";
-import { Priority, PRIORITY_ORDER, TodoEntry, TodoItem } from "../types";
+import { Priority, PRIORITY_ORDER, TodoEntry, TodoItem, TodoStatus, TodoSubtask } from "../types";
 import { isStructureFile } from "./files";
 import { generateTodoId, readTodos, splitFrontmatterAndBody, todosNeedRewrite, writeTodos } from "./noteBody";
+import { parsePrivateTodos, serializePrivateTodos } from "./privateTodoStore";
 
 // ---------------------------------------------------------------------------
 // Todos live in each note's body as a "## Todos" checklist (see noteBody.ts)
@@ -27,7 +28,54 @@ export async function ensurePrivateTodoFile(plugin: NovelStructurePlugin): Promi
   if (!(await plugin.app.vault.adapter.exists(plugin.settings.structureFolder))) {
     await plugin.app.vault.createFolder(plugin.settings.structureFolder);
   }
-  return plugin.app.vault.create(path, "---\ntype: private-todos\n---\n\n# Private Todos\n\n## Notes\n");
+  return plugin.app.vault.create(path, serializePrivateTodos([]));
+}
+
+/** One-time migration for anyone upgrading from the old markdown-based
+ * private todo file: if the configured filename still ends in ".md" (true
+ * for every pre-existing install, false for a fresh one once the default
+ * becomes ".json"), read whatever todos it has, write them into a new JSON
+ * file, and rename the old note out of the way — never delete it outright,
+ * it's the only copy of that data until this has proven itself. Call this
+ * only after `workspace.onLayoutReady` — `vault.getAbstractFileByPath` for
+ * a file that genuinely exists on disk can still return null while
+ * Obsidian is mid-startup indexing, which would make this silently decide
+ * there was nothing to migrate. As a second line of defense in case that
+ * happens anyway, it double-checks via `adapter.exists` (reads the real
+ * filesystem, not the in-memory vault index) before giving up and bails
+ * out entirely — without flipping the setting — rather than risk losing
+ * track of a real file. */
+export async function migratePrivateTodoStoreIfNeeded(plugin: NovelStructurePlugin): Promise<void> {
+  if (!plugin.settings.privateTodoFile.endsWith(".md")) return;
+
+  const app = plugin.app;
+  const oldPath = `${plugin.settings.structureFolder}/${plugin.settings.privateTodoFile}`;
+  const newFileName = plugin.settings.privateTodoFile.replace(/\.md$/, ".json");
+  const newPath = `${plugin.settings.structureFolder}/${newFileName}`;
+
+  let migratedEntries: TodoEntry[] = [];
+  const oldFile = app.vault.getAbstractFileByPath(oldPath);
+  if (oldFile instanceof TFile) {
+    const content = await app.vault.read(oldFile);
+    migratedEntries = readTodos(splitFrontmatterAndBody(content).body);
+    const backupPath = `${oldPath}.migrated-backup`;
+    await app.fileManager.renameFile(oldFile, backupPath);
+    new Notice(
+      `Private todos moved to ${newFileName}. The old note was kept as a backup (${backupPath.split("/").pop()}).`
+    );
+  } else if (await app.vault.adapter.exists(oldPath)) {
+    console.warn(
+      "[novel-structure] private todo migration: old file exists on disk but not yet in the vault index — deferring to next load."
+    );
+    return;
+  }
+
+  if (!(await app.vault.adapter.exists(newPath))) {
+    await app.vault.create(newPath, serializePrivateTodos(migratedEntries));
+  }
+
+  plugin.settings.privateTodoFile = newFileName;
+  await plugin.saveSettings();
 }
 
 /** Moves a file's legacy frontmatter `todos` array (if any, and if the body
@@ -42,12 +90,17 @@ async function migrateLegacyTodos(app: App, file: TFile): Promise<void> {
   const { body } = splitFrontmatterAndBody(content);
   if (readTodos(body).length > 0) return; // body already has entries — don't clobber
 
-  // Legacy frontmatter entries predate the subtasks/recurrence fields
-  // entirely, so they're never actually present on the raw YAML data —
-  // backfill before handing them to writeTodos, which assumes every entry
-  // has both (a possibly empty subtasks array, and recurrenceDays either
-  // set or null).
-  const legacyEntries = legacy.map((e) => ({ ...e, subtasks: e.subtasks ?? [], recurrenceDays: e.recurrenceDays ?? null }));
+  // Legacy frontmatter entries predate the subtasks/recurrence/doneDate
+  // fields entirely, so they're never actually present on the raw YAML
+  // data — backfill before handing them to writeTodos, which assumes every
+  // entry has all three.
+  const legacyEntries = legacy.map((e) => ({
+    ...e,
+    status: e.status ?? ((e as unknown as { done?: boolean }).done ? "done" : "open"),
+    subtasks: e.subtasks ?? [],
+    recurrenceDays: e.recurrenceDays ?? null,
+    doneDate: e.doneDate ?? null,
+  }));
   await app.vault.process(file, (data) => {
     const split = splitFrontmatterAndBody(data);
     return split.frontmatterBlock + writeTodos(split.body, legacyEntries);
@@ -65,6 +118,10 @@ async function migrateLegacyTodos(app: App, file: TFile): Promise<void> {
  * for later done/priority/delete actions. Reads never write again once a
  * section is canonical. */
 export async function readTodosForFile(app: App, file: TFile): Promise<TodoEntry[]> {
+  if (file.extension === "json") {
+    return parsePrivateTodos(await app.vault.read(file));
+  }
+
   await migrateLegacyTodos(app, file);
   const content = await app.vault.read(file);
   const body = splitFrontmatterAndBody(content).body;
@@ -91,34 +148,57 @@ export async function readTodosForFile(app: App, file: TFile): Promise<TodoEntry
  *  - the remaining reads happen in parallel instead of one `await` per
  *    file in a loop. */
 export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoItem[]> {
+  const collectStart = Date.now();
   const app = plugin.app;
   const privatePath = privateTodoPath(plugin);
-  const relevantFiles = app.vault
-    .getMarkdownFiles()
-    .filter((f) => f.path === privatePath || isStructureFile(app, f, plugin.settings));
+  // The private file is JSON, not markdown, so getMarkdownFiles() never
+  // returns it — resolve it separately instead of matching by path inside
+  // that filter.
+  const privateFile = app.vault.getAbstractFileByPath(privatePath);
+  const structureFiles = app.vault.getMarkdownFiles().filter((f) => isStructureFile(app, f, plugin.settings));
 
-  const candidates = relevantFiles.filter((f) => {
-    const cache = app.metadataCache.getFileCache(f);
-    if (!cache) return true; // not indexed yet — don't risk skipping it
-    const hasChecklistLine = cache.listItems?.some((li) => li.task !== undefined) ?? false;
-    const hasLegacyTodos = ((cache.frontmatter?.todos as unknown[] | undefined)?.length ?? 0) > 0;
-    return hasChecklistLine || hasLegacyTodos;
-  });
+  // The metadataCache skip-filter below only means anything for markdown
+  // files — Obsidian doesn't parse listItems/frontmatter for a non-markdown
+  // file, so getFileCache() can come back as a truthy-but-empty object for
+  // the private .json file instead of null, which would make it look like
+  // it has no checklist lines and get skipped entirely. It's one small
+  // file, so just always read it rather than trying to make the cache check
+  // handle a case it isn't meant for.
+  const candidates = [
+    ...(privateFile instanceof TFile ? [privateFile] : []),
+    ...structureFiles.filter((f) => {
+      const cache = app.metadataCache.getFileCache(f);
+      if (!cache) return true; // not indexed yet — don't risk skipping it
+      const hasChecklistLine = cache.listItems?.some((li) => li.task !== undefined) ?? false;
+      const hasLegacyTodos = ((cache.frontmatter?.todos as unknown[] | undefined)?.length ?? 0) > 0;
+      return hasChecklistLine || hasLegacyTodos;
+    }),
+  ];
 
+  // Temporary diagnostics (see conversation with the user about "Loading
+  // todos…" hanging) — logs which file, if any, is unexpectedly slow to
+  // read/rewrite, and the overall total. Safe to remove once the cause is
+  // found; console.debug/warn cost nothing when DevTools isn't open.
   const perFile = await Promise.all(
     candidates.map(async (file): Promise<TodoItem[]> => {
+      const fileStart = Date.now();
       const isPrivate = file.path === privatePath;
       const fm = app.metadataCache.getFileCache(file)?.frontmatter;
       const fileTitle = isPrivate ? "Private" : fm?.title || file.basename;
       const entries = await readTodosForFile(app, file);
+      const fileMs = Date.now() - fileStart;
+      if (fileMs > 300) {
+        console.warn(`[novel-structure] collectTodos: "${file.path}" took ${fileMs}ms (${entries.length} entries)`);
+      }
       return entries.map((entry) => ({
         id: entry.id,
         text: entry.text,
-        done: entry.done,
+        status: entry.status,
         priority: entry.priority,
         deadline: entry.deadline,
         subtasks: entry.subtasks,
         recurrenceDays: entry.recurrenceDays,
+        doneDate: entry.doneDate,
         source: isPrivate ? "private" : "scene",
         filePath: file.path,
         fileTitle,
@@ -126,6 +206,9 @@ export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoIt
     })
   );
 
+  console.debug(
+    `[novel-structure] collectTodos: ${candidates.length} candidate file(s), ${Date.now() - collectStart}ms total`
+  );
   return perFile.flat();
 }
 
@@ -137,9 +220,22 @@ async function mutateTodoEntry(
 ): Promise<void> {
   const file = app.vault.getAbstractFileByPath(filePath);
   if (!(file instanceof TFile)) return;
-  await migrateLegacyTodos(app, file);
 
   let found = false;
+  if (file.extension === "json") {
+    await app.vault.process(file, (data) => {
+      const entries = parsePrivateTodos(data);
+      const entry = entries.find((e) => e.id === id);
+      if (!entry) return data;
+      mutator(entry);
+      found = true;
+      return serializePrivateTodos(entries);
+    });
+    if (!found) new Notice("Todo could not be found anymore (file may have changed in the meantime).");
+    return;
+  }
+
+  await migrateLegacyTodos(app, file);
   await app.vault.process(file, (data) => {
     const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
     const entries = readTodos(body);
@@ -152,18 +248,20 @@ async function mutateTodoEntry(
   if (!found) new Notice("Todo could not be found anymore (file may have changed in the meantime).");
 }
 
-/** Checking off a recurring todo doesn't actually complete it — it resets
+/** Marking a recurring todo done doesn't actually complete it — it resets
  * back to open and pushes its deadline `recurrenceDays` out from today
  * (not from the old deadline, so an early or late check-off doesn't drift
  * the schedule), so it never needs recreating or risks piling up as
  * duplicates. A non-recurring todo behaves exactly as before. */
-export async function setTodoDone(app: App, item: TodoItem, done: boolean): Promise<void> {
+export async function setTodoStatus(app: App, item: TodoItem, status: TodoStatus): Promise<void> {
   await mutateTodoEntry(app, item.filePath, item.id, (e) => {
-    if (done && e.recurrenceDays) {
-      e.done = false;
+    if (status === "done" && e.recurrenceDays) {
+      e.status = "open";
       e.deadline = addDays(todayDate(), e.recurrenceDays);
+      // doneDate stays untouched — it never actually completes.
     } else {
-      e.done = done;
+      e.status = status;
+      e.doneDate = status === "done" ? todayDate() : null;
     }
   });
 }
@@ -197,9 +295,61 @@ export async function setSubtaskDone(app: App, item: TodoItem, subtaskId: string
   });
 }
 
+export async function setSubtaskText(app: App, item: TodoItem, subtaskId: string, text: string): Promise<void> {
+  await mutateTodoEntry(app, item.filePath, item.id, (e) => {
+    const subtask = e.subtasks.find((s) => s.id === subtaskId);
+    if (subtask) subtask.text = text;
+  });
+}
+
 export async function removeSubtask(app: App, item: TodoItem, subtaskId: string): Promise<void> {
   await mutateTodoEntry(app, item.filePath, item.id, (e) => {
     e.subtasks = e.subtasks.filter((s) => s.id !== subtaskId);
+  });
+}
+
+/** Turns a subtask into its own top-level todo in the same file, removing
+ * it from the parent's subtask list. Priority/deadline/recurrence start
+ * fresh (a subtask never had those), but its done state carries over so
+ * promoting an already-finished step doesn't silently reopen it. */
+export async function promoteSubtask(app: App, item: TodoItem, subtaskId: string): Promise<void> {
+  const file = app.vault.getAbstractFileByPath(item.filePath);
+  if (!(file instanceof TFile)) return;
+
+  const toNewEntry = (sub: TodoSubtask): TodoEntry => ({
+    id: generateTodoId(),
+    text: sub.text,
+    status: sub.done ? "done" : "open",
+    priority: "medium",
+    deadline: null,
+    subtasks: [],
+    recurrenceDays: null,
+    doneDate: sub.done ? todayDate() : null,
+  });
+
+  if (file.extension === "json") {
+    await app.vault.process(file, (data) => {
+      const entries = parsePrivateTodos(data);
+      const parent = entries.find((e) => e.id === item.id);
+      const idx = parent?.subtasks.findIndex((s) => s.id === subtaskId) ?? -1;
+      if (!parent || idx === -1) return data;
+      const [sub] = parent.subtasks.splice(idx, 1);
+      entries.push(toNewEntry(sub));
+      return serializePrivateTodos(entries);
+    });
+    return;
+  }
+
+  await migrateLegacyTodos(app, file);
+  await app.vault.process(file, (data) => {
+    const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
+    const entries = readTodos(body);
+    const parent = entries.find((e) => e.id === item.id);
+    const idx = parent?.subtasks.findIndex((s) => s.id === subtaskId) ?? -1;
+    if (!parent || idx === -1) return data;
+    const [sub] = parent.subtasks.splice(idx, 1);
+    entries.push(toNewEntry(sub));
+    return frontmatterBlock + writeTodos(body, entries);
   });
 }
 
@@ -208,8 +358,13 @@ export function nextPriority(current: Priority): Priority {
   return PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length];
 }
 
-/** Removes one todo line from a note's body "## Todos" section. */
+/** Removes one todo line from a note's body "## Todos" section (or one
+ * entry from the private JSON store). */
 export async function removeTodo(app: App, file: TFile, id: string): Promise<void> {
+  if (file.extension === "json") {
+    await app.vault.process(file, (data) => serializePrivateTodos(parsePrivateTodos(data).filter((e) => e.id !== id)));
+    return;
+  }
   await migrateLegacyTodos(app, file);
   await app.vault.process(file, (data) => {
     const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
@@ -231,12 +386,28 @@ export async function addTodo(
   recurrenceDays: number | null = null,
   subtaskTexts: string[] = []
 ): Promise<void> {
+  const subtasks = subtaskTexts.map((t) => ({ id: generateTodoId(), text: t, done: false }));
+  const newEntry: TodoEntry = {
+    id: generateTodoId(),
+    text,
+    status: "open",
+    priority,
+    deadline,
+    subtasks,
+    recurrenceDays,
+    doneDate: null,
+  };
+
+  if (file.extension === "json") {
+    await app.vault.process(file, (data) => serializePrivateTodos([...parsePrivateTodos(data), newEntry]));
+    return;
+  }
+
   await migrateLegacyTodos(app, file);
   await app.vault.process(file, (data) => {
     const { frontmatterBlock, body } = splitFrontmatterAndBody(data);
     const entries = readTodos(body);
-    const subtasks = subtaskTexts.map((t) => ({ id: generateTodoId(), text: t, done: false }));
-    entries.push({ id: generateTodoId(), text, done: false, priority, deadline, subtasks, recurrenceDays });
+    entries.push(newEntry);
     return frontmatterBlock + writeTodos(body, entries);
   });
 }
@@ -261,6 +432,18 @@ export function deadlineUrgency(deadline: string | null): "overdue" | "due-soon"
   if (days <= 0) return "overdue";
   if (days === 1) return "due-soon";
   return null;
+}
+
+/** Whether a completed private todo is old enough to tag as "Archived" in
+ * the Todo center's Completed section — `archiveDays` null/0 means the
+ * archive feature is off (never tag). Purely a display classification,
+ * nothing is moved or deleted; both states still live in the same file. */
+export function isPrivateTodoArchived(
+  entry: { status: TodoStatus; doneDate: string | null },
+  archiveDays: number | null
+): boolean {
+  if (entry.status !== "done" || !entry.doneDate || !archiveDays) return false;
+  return -daysUntilDeadline(entry.doneDate) >= archiveDays;
 }
 
 /** Sorts todos for display: an upcoming/overdue deadline bubbles a todo to

@@ -1,16 +1,21 @@
 import { App, Modal, Notice, Setting, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_ORDER, Priority, TodoItem } from "../../types";
+import { PRIORITY_ORDER, Priority, TodoItem, TodoStatus, TODO_STATUS_LABELS, TODO_STATUS_ORDER } from "../../types";
 import {
   addSubtask,
+  promoteSubtask,
   readTodosForFile,
   removeSubtask,
+  removeTodo,
   setSubtaskDone,
+  setSubtaskText,
   setTodoDeadline,
   setTodoPriority,
   setTodoRecurrence,
+  setTodoStatus,
   setTodoText,
 } from "../../utils/todos";
+import { ConfirmModal } from "./ConfirmModal";
 
 // ---------------------------------------------------------------------------
 // Edits an existing todo — the dialog counterpart to TodoAddModal, reached
@@ -26,6 +31,7 @@ export class TodoEditModal extends Modal {
   plugin: NovelStructurePlugin;
   todo: TodoItem;
   text: string;
+  status: TodoStatus;
   priority: Priority;
   deadline: string | null;
   recurrenceDays: number | null;
@@ -36,6 +42,7 @@ export class TodoEditModal extends Modal {
     this.plugin = plugin;
     this.todo = todo;
     this.text = todo.text;
+    this.status = todo.status;
     this.priority = todo.priority;
     this.deadline = todo.deadline;
     this.recurrenceDays = todo.recurrenceDays;
@@ -56,6 +63,12 @@ export class TodoEditModal extends Modal {
       t.inputEl.focus();
     });
 
+    new Setting(contentEl).setName("Status").addDropdown((dd) => {
+      TODO_STATUS_ORDER.forEach((s) => dd.addOption(s, TODO_STATUS_LABELS[s]));
+      dd.setValue(this.status);
+      dd.onChange((v: string) => (this.status = v as TodoStatus));
+    });
+
     new Setting(contentEl).setName("Priority").addDropdown((dd) => {
       PRIORITY_ORDER.forEach((p) => dd.addOption(p, p));
       dd.setValue(this.priority);
@@ -72,7 +85,7 @@ export class TodoEditModal extends Modal {
       });
 
     // Recurrence only makes sense for private todos — see the same call in
-    // TodoAddModal/TodoCenterModal.
+    // TodoAddModal/TodoHubModal.
     if (this.todo.source === "private") {
       new Setting(contentEl)
         .setName("Repeat every … days")
@@ -99,9 +112,43 @@ export class TodoEditModal extends Modal {
         checkbox.onchange = async () => {
           await setSubtaskDone(this.app, this.todo, sub.id, checkbox.checked);
           sub.done = checkbox.checked;
+          if (sub.done) textEl.addClass("is-done");
+          else textEl.removeClass("is-done");
         };
-        const textEl = row.createEl("span", { text: sub.text, cls: "novel-todo-modal-subtask-text" });
+        const textEl = row.createEl("input", {
+          type: "text",
+          cls: "novel-todo-modal-subtask-text",
+          attr: { value: sub.text },
+        });
         if (sub.done) textEl.addClass("is-done");
+        textEl.addEventListener("blur", async () => {
+          const newText = textEl.value.trim();
+          if (!newText || newText === sub.text) {
+            textEl.value = sub.text;
+            return;
+          }
+          await setSubtaskText(this.app, this.todo, sub.id, newText);
+          sub.text = newText;
+        });
+        textEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter") textEl.blur();
+        });
+        const promoteBtn = row.createEl("span", { cls: "novel-todo-modal-subtask-promote" });
+        setIcon(promoteBtn, "arrow-up");
+        promoteBtn.setAttr("aria-label", "Promote to its own todo");
+        promoteBtn.onclick = () => {
+          new ConfirmModal(
+            this.app,
+            `Promote "${sub.text}" to its own todo? It'll be removed as a subtask here.`,
+            "Promote",
+            async () => {
+              await promoteSubtask(this.app, this.todo, sub.id);
+              this.todo.subtasks = this.todo.subtasks.filter((s) => s.id !== sub.id);
+              renderSubtasks();
+              this.onDone();
+            }
+          ).open();
+        };
         const removeBtn = row.createEl("span", { cls: "novel-todo-modal-subtask-remove" });
         setIcon(removeBtn, "x");
         removeBtn.onclick = async () => {
@@ -145,26 +192,42 @@ export class TodoEditModal extends Modal {
     setIcon(subtaskAddBtn, "plus");
     subtaskAddBtn.onclick = submitSubtask;
 
-    new Setting(contentEl).addButton((btn) =>
-      btn
-        .setButtonText("Save")
-        .setCta()
-        .onClick(async () => {
-          if (!this.text.trim()) {
-            new Notice("Please enter a text.");
-            return;
-          }
-          const text = this.text.trim();
-          if (text !== this.todo.text) await setTodoText(this.app, this.todo, text);
-          if (this.priority !== this.todo.priority) await setTodoPriority(this.app, this.todo, this.priority);
-          if (this.deadline !== this.todo.deadline) await setTodoDeadline(this.app, this.todo, this.deadline);
-          if (this.recurrenceDays !== this.todo.recurrenceDays) {
-            await setTodoRecurrence(this.app, this.todo, this.recurrenceDays);
-          }
-          this.close();
-          this.onDone();
-        })
-    );
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn
+          .setButtonText("Delete")
+          .setWarning()
+          .onClick(() => {
+            new ConfirmModal(this.app, `Delete "${this.todo.text}" permanently?`, "Delete", async () => {
+              const file = this.app.vault.getAbstractFileByPath(this.todo.filePath);
+              if (!(file instanceof TFile)) return;
+              await removeTodo(this.app, file, this.todo.id);
+              this.close();
+              this.onDone();
+            }).open();
+          })
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Save")
+          .setCta()
+          .onClick(async () => {
+            if (!this.text.trim()) {
+              new Notice("Please enter a text.");
+              return;
+            }
+            const text = this.text.trim();
+            if (text !== this.todo.text) await setTodoText(this.app, this.todo, text);
+            if (this.status !== this.todo.status) await setTodoStatus(this.app, this.todo, this.status);
+            if (this.priority !== this.todo.priority) await setTodoPriority(this.app, this.todo, this.priority);
+            if (this.deadline !== this.todo.deadline) await setTodoDeadline(this.app, this.todo, this.deadline);
+            if (this.recurrenceDays !== this.todo.recurrenceDays) {
+              await setTodoRecurrence(this.app, this.todo, this.recurrenceDays);
+            }
+            this.close();
+            this.onDone();
+          })
+      );
   }
 
   onClose() {

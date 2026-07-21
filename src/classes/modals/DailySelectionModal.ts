@@ -1,9 +1,15 @@
-import { App, Modal, Setting, TFile } from "obsidian";
+import { App, Modal, Setting, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { TodoItem } from "../../types";
+import { PRIORITY_COLORS, TodoItem } from "../../types";
 import { collectTodos, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
+import { TodoEditModal } from "./TodoEditModal";
 
 type SelectionValue = "none" | "maybe" | "must";
+const SELECTION_OPTIONS: [SelectionValue, string][] = [
+  ["none", "—"],
+  ["maybe", "Maybe"],
+  ["must", "Must"],
+];
 
 /** "today"/"tomorrow" when targetDate matches, otherwise the raw date — works
  * whether this is run as a morning ritual (planning today) or an evening
@@ -19,8 +25,13 @@ export class DailySelectionModal extends Modal {
   targetDate: string;
   onDone: () => void;
   todos: TodoItem[] = [];
-  selection: Map<string, SelectionValue> = new Map();
+  // A plain object rather than a Map — functionally the same here (string
+  // keys only), but sidesteps whatever's clobbering Map.prototype in this
+  // environment (some other plugin polyfilling/monkey-patching a global,
+  // most likely) that's been intermittently breaking this exact spot.
+  selection: Record<string, SelectionValue> = {};
   hintEl!: HTMLElement;
+  listEl!: HTMLElement;
 
   constructor(app: App, plugin: NovelStructurePlugin, targetDate: string, onDone: () => void) {
     super(app);
@@ -43,48 +54,18 @@ export class DailySelectionModal extends Modal {
     this.hintEl = contentEl.createEl("p", { text: "Loading todos…", cls: "novel-todo-loading" });
 
     const existing = this.plugin.settings.dailySelections[this.targetDate];
-    this.todos = (await collectTodos(this.plugin)).filter((t) => !t.done);
+    this.todos = (await collectTodos(this.plugin)).filter((t) => t.status !== "done");
     this.hintEl.removeClass("novel-todo-loading");
 
-    if (this.todos.length === 0) {
-      contentEl.createEl("p", { text: "No open todos found – you're all caught up! 🎉" });
-    }
-
-    const sorted = sortTodosForDisplay(this.todos);
-
-    sorted.forEach((todo) => {
+    this.todos.forEach((todo) => {
       let value: SelectionValue = "none";
       if (existing?.must.includes(todo.id)) value = "must";
       else if (existing?.maybe.includes(todo.id)) value = "maybe";
-      this.selection.set(todo.id, value);
-
-      const deadlinePart = todo.deadline ? ` · Due: ${todo.deadline}` : "";
-      new Setting(contentEl)
-        .setName(todo.text)
-        .setDesc(`${todo.source === "private" ? "Private" : todo.fileTitle} · Priority: ${todo.priority}${deadlinePart}`)
-        .addExtraButton((btn) =>
-          btn
-            .setIcon("external-link")
-            .setTooltip("Jump to this todo in its file")
-            .onClick(async () => {
-              const file = this.app.vault.getAbstractFileByPath(todo.filePath);
-              if (!(file instanceof TFile)) return;
-              this.close();
-              await this.app.workspace.openLinkText(`${file.basename}#^${todo.id}`, file.path, false);
-            })
-        )
-        .addDropdown((dd) => {
-          dd.addOption("none", "—");
-          dd.addOption("maybe", "Maybe");
-          dd.addOption("must", "Must");
-          dd.setValue(value);
-          dd.onChange((v: string) => {
-            this.selection.set(todo.id, v as SelectionValue);
-            this.updateHint();
-          });
-        });
+      this.selection[todo.id] = value;
     });
 
+    this.listEl = contentEl.createEl("div", { cls: "novel-todo-selection-groups" });
+    this.renderList();
     this.updateHint();
 
     new Setting(contentEl).addButton((btn) =>
@@ -94,7 +75,7 @@ export class DailySelectionModal extends Modal {
         .onClick(async () => {
           const must: string[] = [];
           const maybe: string[] = [];
-          this.selection.forEach((value, id) => {
+          Object.entries(this.selection).forEach(([id, value]) => {
             if (value === "must") must.push(id);
             if (value === "maybe") maybe.push(id);
           });
@@ -105,19 +86,107 @@ export class DailySelectionModal extends Modal {
           };
           await this.plugin.saveSettings();
           this.close();
-          this.onDone();
         })
     );
   }
 
+  /** Grouped by source (Private / Roman) — same split the manage tab uses
+   * for its two columns, tapped into here instead of one flat list, so a
+   * book with a lot of open todos doesn't turn picking today's short list
+   * into a scavenger hunt. */
+  renderList() {
+    this.listEl.empty();
+
+    if (this.todos.length === 0) {
+      this.listEl.createEl("p", { text: "No open todos found – you're all caught up! 🎉", cls: "novel-todo-empty" });
+      return;
+    }
+
+    const groups: [string, TodoItem[]][] = [
+      ["Private", this.todos.filter((t) => t.source === "private")],
+      ["Roman", this.todos.filter((t) => t.source === "scene")],
+    ];
+    groups.forEach(([label, group]) => {
+      if (group.length === 0) return;
+      this.listEl.createEl("div", { cls: "novel-todo-column-header" }).createEl("h4", { text: label });
+      const box = this.listEl.createEl("div", { cls: "novel-todo-list" });
+      sortTodosForDisplay(group).forEach((todo) => this.renderSelectionRow(box, todo));
+    });
+  }
+
+  /** Same compact-row look used everywhere else in the plugin (priority dot,
+   * click-to-edit text, source/deadline badges) plus a three-way Must/Maybe/—
+   * toggle in place of the usual quick actions — this row's whole job is
+   * picking today's/tomorrow's short list, not browsing or triaging. */
+  private renderSelectionRow(container: HTMLElement, todo: TodoItem) {
+    const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
+
+    const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
+    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+    dot.setAttr("aria-label", `Priority: ${todo.priority}`);
+
+    const main = row.createEl("div", { cls: "novel-todo-row-main" });
+    main.setAttr("aria-label", "Edit todo…");
+    main.onclick = () =>
+      new TodoEditModal(this.app, this.plugin, todo, () => this.renderList()).open();
+
+    main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
+    // The section header above already says "Private"/"Roman" — only scene
+    // todos still need a badge here, to say *which* scene.
+    if (todo.source !== "private") {
+      main.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
+    }
+    if (todo.deadline) {
+      main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
+    }
+
+    // Private todos live in a plain JSON blob, not a note — there's no
+    // per-item location to jump to there, so only offer this for scene todos.
+    if (todo.source !== "private") {
+      const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+      setIcon(openBtn, "external-link");
+      openBtn.setAttr("aria-label", "Jump to this todo in its file");
+      openBtn.onclick = async (evt) => {
+        evt.stopPropagation();
+        const file = this.app.vault.getAbstractFileByPath(todo.filePath);
+        if (!(file instanceof TFile)) return;
+        this.close();
+        await this.app.workspace.openLinkText(`${file.basename}#^${todo.id}`, file.path, false);
+      };
+    }
+
+    const toggle = row.createDiv({ cls: "novel-structure-mode-group novel-todo-selection-toggle" });
+    const buttons: HTMLElement[] = [];
+    SELECTION_OPTIONS.forEach(([value, label]) => {
+      const btn = toggle.createEl("button", {
+        text: label,
+        cls: "novel-structure-inline-btn novel-structure-mode-btn",
+      });
+      if (this.selection[todo.id] === value) btn.addClass("is-active");
+      btn.onclick = (evt) => {
+        evt.stopPropagation();
+        this.selection[todo.id] = value;
+        buttons.forEach((b) => b.removeClass("is-active"));
+        btn.addClass("is-active");
+        this.updateHint();
+      };
+      buttons.push(btn);
+    });
+  }
+
   updateHint() {
-    const must = [...this.selection.values()].filter((v) => v === "must").length;
-    const maybe = [...this.selection.values()].filter((v) => v === "maybe").length;
+    const values = Object.values(this.selection);
+    const must = values.filter((v) => v === "must").length;
+    const maybe = values.filter((v) => v === "maybe").length;
     this.hintEl.setText(`Currently selected: ${must} must (rec. ≤3), ${maybe} maybe (rec. ≤3)`);
     this.hintEl.style.color = must > 3 || maybe > 3 ? "var(--text-warning, #e0a800)" : "";
   }
 
   onClose() {
     this.contentEl.empty();
+    // Fires on every close (saved, cancelled, or dismissed with Escape) —
+    // callers rely on this to refresh whatever's underneath rather than
+    // having to guess whether anything actually changed.
+    this.onDone();
   }
 }

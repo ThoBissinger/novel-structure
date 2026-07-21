@@ -547,8 +547,54 @@ textarea.novel-board-field-input {
   width: min(1180px, 96vw);
 }
 .novel-todo-modal .modal-content {
-  max-height: 84vh;
+  /* The tab bar sits outside the scroll box (see .novel-todo-hub-body) and
+     stays put; the modal itself no longer needs to grow/shrink or scroll —
+     it's just as tall as the tab bar plus the fixed-height body below it. */
+  overflow: visible;
+  /* This modal has no title bar (no setTitle()/h2), so without extra
+     clearance the tab row sits right under Obsidian's close (×) button
+     instead of below it. */
+  padding-top: 34px;
+}
+
+.novel-todo-hub-tabs {
+  margin-bottom: 14px;
+}
+.novel-todo-hub-tabs .novel-structure-mode-btn {
+  padding: 5px 18px;
+}
+
+/* Fixed height regardless of which tab is active or how much it holds —
+   switching tabs or expanding a tree node scrolls inside this box instead
+   of resizing the window around it. Generous on purpose: the modal is
+   already wide-screen sized, so there's room to give this real height. */
+.novel-todo-hub-body {
+  height: 70vh;
   overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* The daily-plan tab's content is capped narrower than the body itself —
+   reads as "just today", not "the whole book". */
+.novel-todo-plan-tab {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.novel-todo-section > h3 {
+  margin: 0 0 8px 0;
+}
+.novel-todo-quickadd-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.novel-todo-modal-mode-group {
+  margin-bottom: 8px;
+}
+.novel-todo-modal-mode-group .novel-structure-mode-btn {
+  padding: 5px 18px;
 }
 
 .novel-todo-modal-subtask-list {
@@ -566,16 +612,37 @@ textarea.novel-board-field-input {
 .novel-todo-modal-subtask-text {
   flex: 1;
   font-size: 0.9em;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  padding: 1px 4px;
+  border-radius: 3px;
 }
+.novel-todo-modal-subtask-text:hover,
+.novel-todo-modal-subtask-text:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
+}
+.novel-todo-modal-subtask-text.is-done {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+.novel-todo-modal-subtask-promote,
 .novel-todo-modal-subtask-remove {
   display: inline-flex;
   cursor: pointer;
   opacity: 0.5;
+  flex-shrink: 0;
+}
+.novel-todo-modal-subtask-promote:hover {
+  opacity: 1;
+  color: var(--interactive-accent, #7c3aed);
 }
 .novel-todo-modal-subtask-remove:hover {
   opacity: 1;
   color: var(--text-error);
 }
+.novel-todo-modal-subtask-promote svg,
 .novel-todo-modal-subtask-remove svg {
   width: 13px;
   height: 13px;
@@ -773,6 +840,18 @@ textarea.novel-board-field-input {
 .novel-todo-row:hover {
   background: var(--background-modifier-hover);
 }
+/* The Todo center's own list rows: name + due date + priority only, no
+   inline text/deadline/subtask editing — click anywhere on the row to open
+   the full edit dialog instead. Kept deliberately terse since a book can
+   have hundreds of these; the two-line layout above (checkbox, text, then
+   a meta row below) is still used by the "Completed" section, which is
+   short and benefits from the extra breathing room. */
+.novel-todo-row-compact {
+  align-items: center;
+  padding: 4px 8px;
+  min-height: 0;
+  gap: 8px;
+}
 
 .novel-todo-checkbox {
   flex-shrink: 0;
@@ -781,12 +860,48 @@ textarea.novel-board-field-input {
   margin-top: 3px;
 }
 
+/* Tri-state status control (open → in progress → done), the one thing this
+   row still lets you change directly. Colored/filled state communicates
+   status without needing an icon font. */
+.novel-todo-status-btn {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-on-accent, #fff);
+  background: transparent;
+}
+.novel-todo-status-btn:hover {
+  border-color: var(--text-normal);
+}
+.novel-todo-status-in_progress {
+  border-color: var(--interactive-accent, #7c3aed);
+  background: linear-gradient(135deg, var(--interactive-accent, #7c3aed) 50%, transparent 50%);
+}
+.novel-todo-status-done {
+  border-color: #2ecc71;
+  background: #2ecc71;
+}
+
 .novel-todo-row-main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.novel-todo-row-compact .novel-todo-row-main {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
 .novel-todo-text {
@@ -799,14 +914,16 @@ textarea.novel-board-field-input {
   border-radius: 3px;
   text-overflow: ellipsis;
 }
-.novel-todo-text:hover,
-.novel-todo-text:focus {
-  border-color: var(--background-modifier-border);
-  background: var(--background-primary);
-}
 .novel-todo-text.is-done {
   text-decoration: line-through;
   opacity: 0.5;
+}
+.novel-todo-row-compact .novel-todo-text {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .novel-todo-row-meta {
@@ -829,145 +946,56 @@ textarea.novel-board-field-input {
   opacity: 1;
 }
 
-.novel-todo-priority-chip {
+.novel-todo-source-compact,
+.novel-todo-subtask-badge-compact,
+.novel-todo-deadline-badge {
+  flex-shrink: 0;
   font-size: 0.72em;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  cursor: pointer;
+  opacity: 0.65;
   padding: 1px 7px;
   border-radius: 999px;
   background: var(--background-modifier-hover);
   white-space: nowrap;
 }
-
-.novel-todo-deadline {
-  font-size: 0.72em;
-  max-width: 120px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
+.novel-todo-recurrence-badge-compact {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.55;
 }
-.novel-todo-deadline:hover,
-.novel-todo-deadline:focus {
-  border-color: var(--background-modifier-border);
-  background: var(--background-primary);
-  color: var(--text-normal);
+.novel-todo-recurrence-badge-compact svg {
+  width: 11px;
+  height: 11px;
 }
 
-.novel-todo-subtask-toggle {
-  font-size: 0.72em;
-  cursor: pointer;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--background-modifier-hover);
-  white-space: nowrap;
-  opacity: 0.75;
-}
-.novel-todo-subtask-toggle:hover {
-  opacity: 1;
-}
-
-.novel-todo-subtask-add-btn,
-.novel-todo-open-btn {
+.novel-todo-open-btn,
+.novel-todo-assign-btn {
   display: inline-flex;
   cursor: pointer;
   opacity: 0.5;
   padding: 2px;
   flex-shrink: 0;
 }
-.novel-todo-subtask-add-btn:hover,
-.novel-todo-open-btn:hover {
+.novel-todo-open-btn:hover,
+.novel-todo-assign-btn:hover {
   opacity: 1;
   color: var(--interactive-accent, #7c3aed);
 }
-.novel-todo-subtask-add-btn svg,
-.novel-todo-open-btn svg {
+.novel-todo-open-btn svg,
+.novel-todo-assign-btn svg {
   width: 13px;
   height: 13px;
 }
 
-.novel-todo-subtask-list {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin: 4px 0 2px 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--background-modifier-border);
-}
-.novel-todo-subtask-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.novel-todo-subtask-checkbox {
+/* The daily-plan modal's Must/Maybe/— picker — same pill-toggle look as the
+   By priority/By scene switch, just smaller, so it reads as part of the same
+   row instead of a separate control bolted on. */
+.novel-todo-selection-toggle {
   flex-shrink: 0;
+  margin-left: auto;
 }
-.novel-todo-subtask-text {
-  flex: 1;
-  font-size: 0.85em;
-}
-.novel-todo-subtask-text.is-done {
-  text-decoration: line-through;
-  opacity: 0.5;
-}
-.novel-todo-subtask-delete {
-  display: inline-flex;
-  cursor: pointer;
-  opacity: 0.4;
-  flex-shrink: 0;
-}
-.novel-todo-subtask-delete:hover {
-  opacity: 1;
-  color: var(--text-error);
-}
-.novel-todo-subtask-delete svg {
-  width: 12px;
-  height: 12px;
-}
-.novel-todo-subtask-add-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-}
-.novel-todo-subtask-add-input {
-  flex: 1;
-  font-size: 0.85em;
-  padding: 2px 6px;
-}
-
-.novel-todo-recurrence-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 5px 1px 3px;
-  border-radius: 4px;
-  border: 1px solid transparent;
-  background: transparent;
-  opacity: 0.6;
-}
-.novel-todo-recurrence-wrap:hover,
-.novel-todo-recurrence-wrap.is-active {
-  opacity: 1;
-  border-color: var(--background-modifier-border);
-  background: var(--background-primary);
-}
-.novel-todo-recurrence-wrap.is-active {
-  color: var(--interactive-accent, #7c3aed);
-}
-.novel-todo-recurrence-icon svg {
-  width: 11px;
-  height: 11px;
-}
-.novel-todo-recurrence {
+.novel-todo-selection-toggle .novel-structure-mode-btn {
+  padding: 2px 9px;
   font-size: 0.72em;
-  width: 52px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  color: inherit;
 }
 
 /* Same urgency treatment as the board's inline todo rows — see there for why
@@ -1055,19 +1083,26 @@ textarea.novel-board-field-input {
 .novel-todo-column-header h4 {
   margin: 0;
 }
-.novel-todo-open-private-btn {
-  display: inline-flex;
+.novel-todo-completed-toggle {
   cursor: pointer;
-  opacity: 0.5;
-  padding: 2px;
+  font-size: 0.8em;
+  opacity: 0.65;
+  margin: 10px 0 4px 0;
+  user-select: none;
 }
-.novel-todo-open-private-btn:hover {
+.novel-todo-completed-toggle:hover {
   opacity: 1;
-  color: var(--interactive-accent, #7c3aed);
 }
-.novel-todo-open-private-btn svg {
-  width: 14px;
-  height: 14px;
+
+.novel-todo-archived-tag {
+  font-size: 0.68em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.55;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  white-space: nowrap;
 }
 
 .novel-todo-roman-toolbar {
@@ -1081,6 +1116,21 @@ textarea.novel-board-field-input {
   flex: 1;
   min-width: 120px;
   font-size: 0.85em;
+}
+.novel-todo-depth-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.novel-todo-depth-label {
+  font-size: 0.8em;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+.novel-todo-depth-select {
+  font-size: 0.85em;
+  padding: 2px 6px;
 }
 .novel-todo-group-count {
   opacity: 0.6;
@@ -1109,9 +1159,63 @@ textarea.novel-board-field-input {
   margin: 16px 0;
 }
 
-.novel-todo-quickadd .setting-item {
-  border: none;
-  padding: 4px 0;
+.novel-todo-scene-group {
+  margin-bottom: 2px;
+}
+.novel-todo-scene-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.novel-todo-scene-header:hover {
+  background: var(--background-modifier-hover);
+}
+.novel-todo-scene-chevron {
+  display: flex;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+.novel-todo-scene-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.novel-todo-scene-body {
+  margin-left: 20px;
+}
+
+.novel-todo-tree-node {
+  margin-bottom: 2px;
+}
+.novel-todo-tree-title {
+  font-weight: 600;
+  opacity: 0.9;
+}
+.novel-todo-tree-node .novel-todo-scene-header {
+  font-size: 0.85em;
+}
+
+.novel-todo-pinned-header {
+  font-weight: 700;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+  margin: 4px 0 6px 0;
+}
+.novel-todo-pinned-list {
+  margin-bottom: 4px;
+}
+.novel-todo-tree-divider {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 14px 0;
 }
 
 .novel-todo-empty {

@@ -12,8 +12,8 @@ import {
   readTodosForFile,
   removeTodo,
   setTodoDeadline,
-  setTodoDone,
   setTodoPriority,
+  setTodoStatus,
   setTodoText,
   sortTodosForDisplay,
 } from "../utils/todos";
@@ -212,20 +212,20 @@ export class StructureNoteEditor {
         if (urgency) row.addClass(`novel-board-todo-row-${urgency}`);
 
         const checkbox = row.createEl("input", { type: "checkbox" });
-        checkbox.checked = entry.done;
+        checkbox.checked = entry.status === "done";
         checkbox.onclick = (evt) => evt.stopPropagation();
         checkbox.onchange = async () => {
-          await setTodoDone(
+          await setTodoStatus(
             this.app,
             { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
-            checkbox.checked
+            checkbox.checked ? "done" : "open"
           );
           this.onChange();
         };
 
         const text = row.createEl("input", { type: "text", cls: "novel-board-todo-text" });
         text.value = entry.text;
-        if (entry.done) text.addClass("is-done");
+        if (entry.status === "done") text.addClass("is-done");
         text.onclick = (evt) => evt.stopPropagation();
         text.addEventListener("blur", async () => {
           const newText = text.value.trim();
@@ -245,13 +245,13 @@ export class StructureNoteEditor {
         // Read-only here (a new StructureNoteEditor instance is created on
         // every render, so there's no stable place to track "expanded"
         // state for inline editing) — full subtask management lives in the
-        // Todo Center modal.
+        // Manage todos view.
         if (entry.subtasks.length > 0) {
           const done = entry.subtasks.filter((s) => s.done).length;
           row.createEl("span", {
             text: `${done}/${entry.subtasks.length}`,
             cls: "novel-board-todo-subtask-badge",
-            attr: { title: "Subtasks — manage them in the Todo center" },
+            attr: { title: "Subtasks — manage them in the Manage todos view" },
           });
         }
 

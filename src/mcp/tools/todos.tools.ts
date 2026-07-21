@@ -1,15 +1,15 @@
 import type { App, TFile } from "obsidian";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { Priority, PRIORITY_ORDER, TodoItem } from "../../types";
+import { Priority, PRIORITY_ORDER, TodoItem, TodoStatus, TODO_STATUS_ORDER } from "../../types";
 import {
   addTodo,
   collectTodos,
   readTodosForFile,
   removeTodo,
   setTodoDeadline,
-  setTodoDone,
   setTodoPriority,
+  setTodoStatus,
 } from "../../utils/todos";
 import type { ToolContext } from "../toolContext";
 import { errorResult, jsonResult } from "../toolResult";
@@ -20,7 +20,7 @@ const deadlineSchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
   .describe("Deadline, YYYY-MM-DD. Highlighted the day before, red once due/overdue.");
 
-/** setTodoDone/setTodoPriority take a resolved TodoItem, not just an id —
+/** setTodoStatus/setTodoPriority take a resolved TodoItem, not just an id —
  * same inline construction StructureNoteEditor uses for its own row
  * actions ({ ...entry, source: "scene", filePath, fileTitle: "" }); the
  * mutators only read entry.id/filePath, so the placeholder source/fileTitle
@@ -39,16 +39,16 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
       title: "List todos",
       description: "Lists todos across every scene and the private todo file, optionally filtered.",
       inputSchema: {
-        done: z.boolean().optional(),
+        status: z.enum(TODO_STATUS_ORDER as [TodoStatus, ...TodoStatus[]]).optional(),
         priority: z.enum(PRIORITY_ORDER as [Priority, ...Priority[]]).optional(),
         source: z.enum(["scene", "private"]).optional(),
       },
     },
-    async ({ done, priority, source }) => {
+    async ({ status, priority, source }) => {
       const todos = await collectTodos(ctx.plugin);
       const filtered = todos.filter(
         (t) =>
-          (done === undefined || t.done === done) &&
+          (!status || t.status === status) &&
           (!priority || t.priority === priority) &&
           (!source || t.source === source)
       );
@@ -77,20 +77,24 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
-    "set_todo_done",
+    "set_todo_status",
     {
-      title: "Set todo done",
-      description: "Marks a todo done/not-done by id (see list_todos for ids).",
-      inputSchema: { path: z.string(), todoId: z.string(), done: z.boolean() },
+      title: "Set todo status",
+      description: "Sets a todo's status (open/in_progress/done) by id (see list_todos for ids).",
+      inputSchema: {
+        path: z.string(),
+        todoId: z.string(),
+        status: z.enum(TODO_STATUS_ORDER as [TodoStatus, ...TodoStatus[]]),
+      },
     },
-    async ({ path, todoId, done }) => {
+    async ({ path, todoId, status }) => {
       const { app } = ctx.plugin;
       const file = resolveFile(ctx, path);
       if (!file) return errorResult(`No note found at "${path}".`);
       const item = await findTodoItem(app, file, todoId);
       if (!item) return errorResult(`No todo with id "${todoId}" found in "${path}".`);
-      await setTodoDone(app, item, done);
-      return jsonResult({ path: file.path, todoId, done });
+      await setTodoStatus(app, item, status);
+      return jsonResult({ path: file.path, todoId, status });
     }
   );
 

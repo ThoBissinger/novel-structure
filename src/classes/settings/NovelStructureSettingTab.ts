@@ -46,11 +46,28 @@ export class NovelStructureSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Private todo file")
-      .setDesc("File name (inside the structure folder) for todos that aren't tied to a scene.")
+      .setDesc(
+        "File name (inside the structure folder) for todos that aren't tied to a scene. " +
+          "A plain JSON file, not meant to be hand-edited — use the Manage todos view's Add/Edit dialogs."
+      )
       .addText((text) =>
         text.setValue(this.plugin.settings.privateTodoFile).onChange(async (v) => {
           const name = v.trim() || DEFAULT_SETTINGS.privateTodoFile;
-          this.plugin.settings.privateTodoFile = name.endsWith(".md") ? name : `${name}.md`;
+          this.plugin.settings.privateTodoFile = name.endsWith(".json") ? name : `${name}.json`;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Archive completed private todos after")
+      .setDesc(
+        "Days after checking one off before it's tagged \"Archived\" in the Manage todos view's Completed section. " +
+          "Empty/0 = never archive (still shown under Completed either way)."
+      )
+      .addText((text) =>
+        text.setValue(this.plugin.settings.privateTodoArchiveDays?.toString() ?? "").onChange(async (v) => {
+          const n = parseInt(v, 10);
+          this.plugin.settings.privateTodoArchiveDays = Number.isFinite(n) && n > 0 ? n : null;
           await this.plugin.saveSettings();
         })
       );
