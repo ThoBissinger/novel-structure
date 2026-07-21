@@ -31,6 +31,28 @@ export async function ensurePrivateTodoFile(plugin: NovelStructurePlugin): Promi
   return plugin.app.vault.create(path, serializePrivateTodos([]));
 }
 
+/** Every place a new todo could be added: the private file first, then every
+ * scene/chapter in manuscript order (global_order) so a picker built from
+ * this reads top-to-bottom the same way the manuscript does. Shared by
+ * TodoHubModal's quick-add and RoadmapView's per-day quick-add so both
+ * build the exact same target list instead of duplicating this. */
+export async function buildTodoTargets(
+  app: App,
+  plugin: NovelStructurePlugin
+): Promise<{ file: TFile; label: string }[]> {
+  const privateFile = await ensurePrivateTodoFile(plugin);
+  const scenes = app.vault
+    .getFiles()
+    .filter((f) => isStructureFile(app, f, plugin.settings))
+    .map((file) => {
+      const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+      return { file, label: (fm?.title as string) || file.basename, order: (fm?.global_order as number) ?? 0 };
+    })
+    .sort((a, b) => a.order - b.order)
+    .map(({ file, label }) => ({ file, label }));
+  return [{ file: privateFile, label: "Private" }, ...scenes];
+}
+
 /** One-time migration for anyone upgrading from the old markdown-based
  * private todo file: if the configured filename still ends in ".md" (true
  * for every pre-existing install, false for a fresh one once the default
@@ -100,6 +122,7 @@ async function migrateLegacyTodos(app: App, file: TFile): Promise<void> {
     subtasks: e.subtasks ?? [],
     recurrenceDays: e.recurrenceDays ?? null,
     doneDate: e.doneDate ?? null,
+    estimatedMinutes: e.estimatedMinutes ?? null,
   }));
   await app.vault.process(file, (data) => {
     const split = splitFrontmatterAndBody(data);
@@ -199,6 +222,7 @@ export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoIt
         subtasks: entry.subtasks,
         recurrenceDays: entry.recurrenceDays,
         doneDate: entry.doneDate,
+        estimatedMinutes: entry.estimatedMinutes,
         source: isPrivate ? "private" : "scene",
         filePath: file.path,
         fileTitle,
@@ -278,6 +302,10 @@ export async function setTodoDeadline(app: App, item: TodoItem, deadline: string
   await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.deadline = deadline));
 }
 
+export async function setTodoEstimatedMinutes(app: App, item: TodoItem, minutes: number | null): Promise<void> {
+  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.estimatedMinutes = minutes));
+}
+
 export async function setTodoRecurrence(app: App, item: TodoItem, recurrenceDays: number | null): Promise<void> {
   await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.recurrenceDays = recurrenceDays));
 }
@@ -325,6 +353,7 @@ export async function promoteSubtask(app: App, item: TodoItem, subtaskId: string
     subtasks: [],
     recurrenceDays: null,
     doneDate: sub.done ? todayDate() : null,
+    estimatedMinutes: null,
   });
 
   if (file.extension === "json") {
@@ -384,7 +413,8 @@ export async function addTodo(
   priority: Priority,
   deadline: string | null = null,
   recurrenceDays: number | null = null,
-  subtaskTexts: string[] = []
+  subtaskTexts: string[] = [],
+  estimatedMinutes: number | null = null
 ): Promise<void> {
   const subtasks = subtaskTexts.map((t) => ({ id: generateTodoId(), text: t, done: false }));
   const newEntry: TodoEntry = {
@@ -396,6 +426,7 @@ export async function addTodo(
     subtasks,
     recurrenceDays,
     doneDate: null,
+    estimatedMinutes,
   };
 
   if (file.extension === "json") {
@@ -469,8 +500,8 @@ export function todayDate(): string {
 /** `dateStr` plus `days` (UTC-midnight arithmetic, same as
  * daysUntilDeadline() — avoids DST edge cases shifting the result by a
  * day). Used to push a recurring todo's deadline out from today when it's
- * checked off. */
-function addDays(dateStr: string, days: number): string {
+ * checked off, and for week-start math. */
+export function addDays(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
   date.setUTCDate(date.getUTCDate() + days);
@@ -481,4 +512,17 @@ export function tomorrowDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return formatDate(d);
+}
+
+/** The Monday on/before `dateStr` — the key weekly planning is stored under.
+ * `Date.getUTCDay()` is 0 (Sun) .. 6 (Sat); rolling Sunday back 6 days and
+ * everything else back to `day - 1` days both land on that week's Monday. */
+export function mondayOfWeek(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return addDays(dateStr, day === 0 ? -6 : 1 - day);
+}
+
+export function thisWeekStart(): string {
+  return mondayOfWeek(todayDate());
 }

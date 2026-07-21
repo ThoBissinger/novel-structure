@@ -6,7 +6,10 @@ import {
   NovelStructureSettings,
   VIEW_TYPE_BOARD,
   VIEW_TYPE_NARRATIVE_CHART,
+  VIEW_TYPE_ROADMAP,
+  VIEW_TYPE_SESSION,
   VIEW_TYPE_STRUCTURE,
+  VIEW_TYPE_WEEKLY,
 } from "./types";
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
@@ -14,7 +17,7 @@ import { McpHttpServer } from "./mcp/server";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
 import { LocationOverviewModal } from "./classes/modals/LocationOverviewModal";
 import { exportStructureToCsv } from "./utils/exportCsv";
-import { DailySelectionModal } from "./classes/modals/DailySelectionModal";
+import { DailyPlannerModal } from "./classes/modals/DailyPlannerModal";
 import { DocxPickModal } from "./classes/modals/DocxPickModal";
 import { MetadataEditorModal } from "./classes/modals/MetadataEditorModal";
 import { RootNoteModal } from "./classes/modals/RootNoteModal";
@@ -26,7 +29,10 @@ import { TodoHubModal } from "./classes/modals/TodoHubModal";
 import { NovelStructureSettingTab } from "./classes/settings/NovelStructureSettingTab";
 import { NarrativeChartView } from "./classes/views/NarrativeChartView";
 import { NovelBoardView } from "./classes/views/NovelBoardView";
+import { RoadmapView } from "./classes/views/RoadmapView";
+import { SessionView } from "./classes/views/SessionView";
 import { StructureView } from "./classes/views/StructureView";
+import { WeeklyView } from "./classes/views/WeeklyView";
 import { splitBody } from "./utils/noteBody";
 import { findRootNote, updateStructureMetadata } from "./utils/rootNote";
 import { isThreadFile, refreshThreadTrackerQuery, regenerateThreadsBase, ThreadKind } from "./utils/threads";
@@ -311,6 +317,9 @@ export default class NovelStructurePlugin extends Plugin {
     this.registerView(VIEW_TYPE_STRUCTURE, (leaf) => new StructureView(leaf, this));
     this.registerView(VIEW_TYPE_BOARD, (leaf) => new NovelBoardView(leaf, this));
     this.registerView(VIEW_TYPE_NARRATIVE_CHART, (leaf) => new NarrativeChartView(leaf, this));
+    this.registerView(VIEW_TYPE_ROADMAP, (leaf) => new RoadmapView(leaf, this));
+    this.registerView(VIEW_TYPE_SESSION, (leaf) => new SessionView(leaf, this));
+    this.registerView(VIEW_TYPE_WEEKLY, (leaf) => new WeeklyView(leaf, this));
 
     this.addCommand({
       id: "novel-structure-open-narrative-chart",
@@ -337,21 +346,39 @@ export default class NovelStructurePlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "novel-structure-morning-ritual",
-      name: "Morning ritual: choose today's todos",
+      id: "novel-structure-open-roadmap",
+      name: "Open roadmap",
+      callback: () => this.activateRoadmapView(),
+    });
+
+    this.addCommand({
+      id: "novel-structure-open-session",
+      name: "Open work session",
+      callback: () => this.activateSessionView(),
+    });
+
+    this.addCommand({
+      id: "novel-structure-weekly-planner",
+      name: "Open weekly planner",
+      callback: () => this.activateWeeklyView(),
+    });
+
+    this.addCommand({
+      id: "novel-structure-daily-planner",
+      name: "Open today's planner",
       callback: () =>
-        new DailySelectionModal(this.app, this, todayDate(), () => {
+        new DailyPlannerModal(this.app, this, todayDate(), () => {
           new TodoHubModal(this.app, this, "plan").open();
         }).open(),
     });
 
     this.addCommand({
       id: "novel-structure-evening-ritual",
-      name: "Evening ritual: prepare tomorrow's todos",
+      name: "Prepare tomorrow's plan",
       callback: () =>
-        new DailySelectionModal(this.app, this, tomorrowDate(), () => {
+        new DailyPlannerModal(this.app, this, tomorrowDate(), () => {
           new TodoHubModal(this.app, this, "plan").open();
-        }).open(),
+        }, "todos").open(),
     });
 
     this.addCommand({
@@ -382,7 +409,13 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.addRibbonIcon("layout-list", "Open novel structure", () => this.activateStructureView());
     this.addRibbonIcon("list-checks", "Open todo planning", () => new TodoHubModal(this.app, this, "plan").open());
+    this.addRibbonIcon("calendar-check", "Open today's planner", () =>
+      new DailyPlannerModal(this.app, this, todayDate(), () => {}).open()
+    );
     this.addRibbonIcon("layout-grid", "Open novel board", () => this.activateBoardView());
+    this.addRibbonIcon("calendar-days", "Open roadmap", () => this.activateRoadmapView());
+    this.addRibbonIcon("calendar-range", "Open weekly planner", () => this.activateWeeklyView());
+    this.addRibbonIcon("timer", "Open work session", () => this.activateSessionView());
     this.addRibbonIcon("users", "Open character overview", () => new CharacterOverviewModal(this.app, this).open());
     this.addRibbonIcon("map-pin", "Open location overview", () => new LocationOverviewModal(this.app, this).open());
     this.addRibbonIcon("activity", "Open narrative chart", () => this.activateNarrativeChartView());
@@ -731,6 +764,16 @@ export default class NovelStructurePlugin extends Plugin {
     workspace.revealLeaf(leaf);
   }
 
+  async activateSessionView() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_SESSION)[0];
+    if (!leaf) {
+      leaf = workspace.getRightLeaf(false)!;
+      await leaf.setViewState({ type: VIEW_TYPE_SESSION, active: true });
+    }
+    workspace.revealLeaf(leaf);
+  }
+
   async activateBoardView() {
     const { workspace } = this.app;
     let leaf = workspace.getLeavesOfType(VIEW_TYPE_BOARD)[0];
@@ -747,6 +790,26 @@ export default class NovelStructurePlugin extends Plugin {
     if (!leaf) {
       leaf = workspace.getLeaf("tab");
       await leaf.setViewState({ type: VIEW_TYPE_NARRATIVE_CHART, active: true });
+    }
+    workspace.revealLeaf(leaf);
+  }
+
+  async activateRoadmapView() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_ROADMAP)[0];
+    if (!leaf) {
+      leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VIEW_TYPE_ROADMAP, active: true });
+    }
+    workspace.revealLeaf(leaf);
+  }
+
+  async activateWeeklyView() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(VIEW_TYPE_WEEKLY)[0];
+    if (!leaf) {
+      leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VIEW_TYPE_WEEKLY, active: true });
     }
     workspace.revealLeaf(leaf);
   }

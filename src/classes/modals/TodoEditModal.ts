@@ -10,6 +10,7 @@ import {
   setSubtaskDone,
   setSubtaskText,
   setTodoDeadline,
+  setTodoEstimatedMinutes,
   setTodoPriority,
   setTodoRecurrence,
   setTodoStatus,
@@ -35,6 +36,7 @@ export class TodoEditModal extends Modal {
   priority: Priority;
   deadline: string | null;
   recurrenceDays: number | null;
+  estimatedMinutes: number | null;
   onDone: () => void;
 
   constructor(app: App, plugin: NovelStructurePlugin, todo: TodoItem, onDone: () => void) {
@@ -46,6 +48,7 @@ export class TodoEditModal extends Modal {
     this.priority = todo.priority;
     this.deadline = todo.deadline;
     this.recurrenceDays = todo.recurrenceDays;
+    this.estimatedMinutes = todo.estimatedMinutes;
     this.onDone = onDone;
   }
 
@@ -82,6 +85,19 @@ export class TodoEditModal extends Modal {
         t.inputEl.type = "date";
         t.inputEl.value = this.deadline ?? "";
         t.onChange((v) => (this.deadline = v || null));
+      });
+
+    new Setting(contentEl)
+      .setName("Estimated minutes")
+      .setDesc("Optional. Used for session planning — budgeting picked todos against how much time is actually available.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "1";
+        t.inputEl.value = this.estimatedMinutes != null ? String(this.estimatedMinutes) : "";
+        t.onChange((v) => {
+          const n = parseInt(v, 10);
+          this.estimatedMinutes = Number.isFinite(n) && n >= 1 ? n : null;
+        });
       });
 
     // Recurrence only makes sense for private todos — see the same call in
@@ -223,6 +239,9 @@ export class TodoEditModal extends Modal {
             if (this.deadline !== this.todo.deadline) await setTodoDeadline(this.app, this.todo, this.deadline);
             if (this.recurrenceDays !== this.todo.recurrenceDays) {
               await setTodoRecurrence(this.app, this.todo, this.recurrenceDays);
+            }
+            if (this.estimatedMinutes !== this.todo.estimatedMinutes) {
+              await setTodoEstimatedMinutes(this.app, this.todo, this.estimatedMinutes);
             }
             this.close();
             this.onDone();

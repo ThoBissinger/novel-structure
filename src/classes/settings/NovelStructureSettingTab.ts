@@ -73,6 +73,22 @@ export class NovelStructureSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Habits to track")
+      .setDesc(
+        "Comma-separated list — shown as daily checkboxes in the Daily planner and rolled up into a weekly " +
+          "grid in the Weekly planner. Leave empty to hide habit tracking entirely."
+      )
+      .addText((text) =>
+        text.setValue(this.plugin.settings.habitNames.join(", ")).onChange(async (v) => {
+          this.plugin.settings.habitNames = v
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Default properties view")
       .setDesc(
         "How a structure note's raw frontmatter/properties block is shown when you open it. " +

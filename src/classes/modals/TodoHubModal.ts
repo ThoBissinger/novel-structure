@@ -1,8 +1,10 @@
 import { App, Modal, Notice, Setting, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { DailySelection, Priority, PRIORITY_COLORS, PRIORITY_ORDER, STRUCTURE_TYPES, StructureType, TodoItem } from "../../types";
+import { readDailyCheckIn, readWeeklyTheme } from "../../utils/checkInNotes";
 import { extractLinkBasename, isStructureFile } from "../../utils/files";
 import {
+  buildTodoTargets,
   collectTodos,
   deadlineUrgency,
   ensurePrivateTodoFile,
@@ -10,12 +12,13 @@ import {
   removeTodo,
   setTodoStatus,
   sortTodosForDisplay,
+  thisWeekStart,
   todayDate,
   tomorrowDate,
 } from "../../utils/todos";
 import { findRootNote } from "../../utils/rootNote";
 import { ConfirmModal } from "./ConfirmModal";
-import { DailySelectionModal } from "./DailySelectionModal";
+import { DailyPlannerModal } from "./DailyPlannerModal";
 import { renderTodoRow } from "./todoRowView";
 import { TodoAddModal, TodoTarget } from "./TodoAddModal";
 
@@ -106,8 +109,93 @@ export class TodoHubModal extends Modal {
 
   private renderPlanTab(container: HTMLElement, allTodos: TodoItem[]) {
     const tab = container.createDiv({ cls: "novel-todo-plan-tab" });
+    this.renderThemeBanner(tab);
+    this.renderCheckInBox(tab);
+    this.renderWeekSection(tab, allTodos);
     this.renderDaySection(tab, allTodos, todayDate(), "Today", "sun");
     this.renderDaySection(tab, allTodos, tomorrowDate(), "Tomorrow", "moon");
+  }
+
+  /** Read-only glance at this week's theme (if any's been set) — a nudge to
+   * keep it in view, not an editor; click through to the weekly planner view. */
+  private renderThemeBanner(container: HTMLElement) {
+    const weekStart = thisWeekStart();
+    const theme = readWeeklyTheme(this.app, this.plugin, weekStart);
+    const banner = container.createEl("div", { cls: "novel-week-theme-banner is-clickable" });
+    if (theme?.theme) {
+      banner.createEl("span", { text: `“${theme.theme}”`, cls: "novel-week-theme-text" });
+    } else {
+      banner.createEl("span", { text: "Set a theme for this week →", cls: "novel-week-theme-prompt" });
+    }
+    banner.onclick = () => {
+      this.close();
+      this.plugin.activateWeeklyView();
+    };
+  }
+
+  /** Compact glance at today's check-in — a one-line ratings summary once
+   * set, otherwise a prompt. Full editing happens in DailyPlannerModal. */
+  private renderCheckInBox(container: HTMLElement) {
+    const date = todayDate();
+    const checkIn = readDailyCheckIn(this.app, this.plugin, date);
+    const box = container.createEl("div", { cls: "novel-checkin-box" });
+    const hasAny = checkIn && (checkIn.rested || checkIn.energy || checkIn.motivation || checkIn.focus || checkIn.grateful);
+    if (hasAny) {
+      const parts: string[] = [];
+      if (checkIn!.rested) parts.push(`Rested ${checkIn!.rested}`);
+      if (checkIn!.energy) parts.push(`Energy ${checkIn!.energy}`);
+      if (checkIn!.motivation) parts.push(`Motivation ${checkIn!.motivation}`);
+      box.createEl("span", { text: parts.length ? parts.join(" · ") : "Check-in started", cls: "novel-checkin-summary" });
+    } else {
+      box.createEl("span", { text: "How are you doing today?", cls: "novel-checkin-summary" });
+    }
+    const editBtn = box.createEl("button", { text: "Check-in", cls: "novel-structure-inline-btn" });
+    editBtn.onclick = () => {
+      new DailyPlannerModal(this.app, this.plugin, date, () => this.render(), "checkin").open();
+    };
+  }
+
+  /** Same box/header/progress-bar shell as renderDaySection, but for the
+   * looser weekly plan: one flat list (no Must/Maybe), and edits go through
+   * the weekly planner view instead of an inline remove button. */
+  private renderWeekSection(container: HTMLElement, allTodos: TodoItem[]) {
+    const weekStart = thisWeekStart();
+    const selection = this.plugin.settings.weeklySelections[weekStart];
+    const hasSelection = !!selection && selection.todoIds.length > 0;
+
+    const box = container.createEl("div", { cls: "novel-todo-day-box" });
+    const header = box.createEl("div", { cls: "novel-todo-day-header" });
+    const iconEl = header.createEl("span", { cls: "novel-todo-day-icon" });
+    setIcon(iconEl, "calendar-range");
+    header.createEl("h3", { text: `This week · ${weekStart}` });
+
+    const openRitual = () => {
+      this.close();
+      this.plugin.activateWeeklyView();
+    };
+
+    if (!hasSelection) {
+      box.createEl("p", { text: "No weekly priorities set yet.", cls: "novel-todo-hint" });
+      new Setting(box).addButton((btn) => btn.setButtonText("Start weekly ritual").setCta().onClick(openRitual));
+      return;
+    }
+
+    const items = selection!.todoIds.map((id) => allTodos.find((t) => t.id === id)).filter((t): t is TodoItem => !!t);
+    const doneCount = items.filter((t) => t.status === "done").length;
+    const percent = items.length ? Math.round((doneCount / items.length) * 100) : 0;
+
+    const progress = box.createEl("div", { cls: "novel-todo-progress" });
+    const track = progress.createEl("div", { cls: "novel-todo-progress-track" });
+    const bar = track.createEl("div", { cls: "novel-todo-progress-bar" });
+    bar.style.width = `${percent}%`;
+    progress.createEl("span", { text: `${doneCount}/${items.length} done`, cls: "novel-todo-progress-label" });
+
+    const list = box.createEl("div", { cls: "novel-todo-list" });
+    items.forEach((todo) =>
+      renderTodoRow(this.app, this.plugin, list, todo, {}, () => this.render(), () => this.close())
+    );
+
+    new Setting(box).addButton((btn) => btn.setButtonText("Edit weekly plan").onClick(openRitual));
   }
 
   private renderDaySection(container: HTMLElement, allTodos: TodoItem[], date: string, label: string, icon: string) {
@@ -125,7 +213,7 @@ export class TodoHubModal extends Modal {
     // reason: saved, cancelled, or dismissed with Escape), at which point it
     // refreshes in place to reflect whatever changed.
     const openRitual = () => {
-      new DailySelectionModal(this.app, this.plugin, date, () => this.render()).open();
+      new DailyPlannerModal(this.app, this.plugin, date, () => this.render(), "todos").open();
     };
 
     if (!hasSelection) {
@@ -700,21 +788,8 @@ export class TodoHubModal extends Modal {
     });
   }
 
-  /** Private todo file first, then every scene/chapter, ordered like the
-   * structure itself (global_order) so the picker reads top-to-bottom the
-   * same way the manuscript does. */
   async allTodoTargets(): Promise<TodoTarget[]> {
-    const privateFile = await ensurePrivateTodoFile(this.plugin);
-    const scenes = this.app.vault
-      .getFiles()
-      .filter((f) => isStructureFile(this.app, f, this.plugin.settings))
-      .map((file) => {
-        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-        return { file, label: (fm?.title as string) || file.basename, order: (fm?.global_order as number) ?? 0 };
-      })
-      .sort((a, b) => a.order - b.order)
-      .map(({ file, label }) => ({ file, label }));
-    return [{ file: privateFile, label: "Private" }, ...scenes];
+    return buildTodoTargets(this.app, this.plugin);
   }
 
   onClose() {

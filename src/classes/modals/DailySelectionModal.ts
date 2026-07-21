@@ -1,11 +1,13 @@
 import { App, Modal, Setting, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem } from "../../types";
-import { collectTodos, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
+import { readWeeklyTheme } from "../../utils/checkInNotes";
+import { collectTodos, mondayOfWeek, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
 import { TodoEditModal } from "./TodoEditModal";
+import { renderSubtaskExpandToggle } from "./todoRowView";
 
-type SelectionValue = "none" | "maybe" | "must";
-const SELECTION_OPTIONS: [SelectionValue, string][] = [
+export type SelectionValue = "none" | "maybe" | "must";
+export const SELECTION_OPTIONS: [SelectionValue, string][] = [
   ["none", "—"],
   ["maybe", "Maybe"],
   ["must", "Must"],
@@ -14,7 +16,7 @@ const SELECTION_OPTIONS: [SelectionValue, string][] = [
 /** "today"/"tomorrow" when targetDate matches, otherwise the raw date — works
  * whether this is run as a morning ritual (planning today) or an evening
  * one (planning tomorrow), since only the date passed in differs. */
-function friendlyDateLabel(targetDate: string): string {
+export function friendlyDateLabel(targetDate: string): string {
   if (targetDate === todayDate()) return "today";
   if (targetDate === tomorrowDate()) return "tomorrow";
   return targetDate;
@@ -30,6 +32,11 @@ export class DailySelectionModal extends Modal {
   // environment (some other plugin polyfilling/monkey-patching a global,
   // most likely) that's been intermittently breaking this exact spot.
   selection: Record<string, SelectionValue> = {};
+  // Todo IDs picked in this week's plan (WeeklyView) — surfaced here
+  // as a "This week" suggestion (badge + sorted first), never auto-selected;
+  // must/maybe/none for a specific day is still always a manual choice.
+  weeklyTodoIds: Set<string> = new Set();
+  expandedTodoIds: Set<string> = new Set();
   hintEl!: HTMLElement;
   listEl!: HTMLElement;
 
@@ -51,9 +58,16 @@ export class DailySelectionModal extends Modal {
     });
     introText.style.opacity = "0.8";
 
+    const theme = readWeeklyTheme(this.app, this.plugin, mondayOfWeek(this.targetDate));
+    if (theme?.theme) {
+      contentEl.createEl("div", { text: `This week: “${theme.theme}”`, cls: "novel-week-theme-banner" });
+    }
+
     this.hintEl = contentEl.createEl("p", { text: "Loading todos…", cls: "novel-todo-loading" });
 
     const existing = this.plugin.settings.dailySelections[this.targetDate];
+    const weekly = this.plugin.settings.weeklySelections[mondayOfWeek(this.targetDate)];
+    this.weeklyTodoIds = new Set(weekly?.todoIds ?? []);
     this.todos = (await collectTodos(this.plugin)).filter((t) => t.status !== "done");
     this.hintEl.removeClass("novel-todo-loading");
 
@@ -110,7 +124,13 @@ export class DailySelectionModal extends Modal {
       if (group.length === 0) return;
       this.listEl.createEl("div", { cls: "novel-todo-column-header" }).createEl("h4", { text: label });
       const box = this.listEl.createEl("div", { cls: "novel-todo-list" });
-      sortTodosForDisplay(group).forEach((todo) => this.renderSelectionRow(box, todo));
+      // This week's picks first (still deadline/priority-sorted within that
+      // subset), then everything else — a nudge toward what you already
+      // said mattered this week, not a filter.
+      const sorted = sortTodosForDisplay(group);
+      const suggested = sorted.filter((t) => this.weeklyTodoIds.has(t.id));
+      const rest = sorted.filter((t) => !this.weeklyTodoIds.has(t.id));
+      [...suggested, ...rest].forEach((todo) => this.renderSelectionRow(box, todo));
     });
   }
 
@@ -131,6 +151,9 @@ export class DailySelectionModal extends Modal {
       new TodoEditModal(this.app, this.plugin, todo, () => this.renderList()).open();
 
     main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
+    if (this.weeklyTodoIds.has(todo.id)) {
+      main.createEl("span", { text: "This week", cls: "novel-todo-week-badge" });
+    }
     // The section header above already says "Private"/"Roman" — only scene
     // todos still need a badge here, to say *which* scene.
     if (todo.source !== "private") {
@@ -138,6 +161,10 @@ export class DailySelectionModal extends Modal {
     }
     if (todo.deadline) {
       main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
+    }
+    if (todo.subtasks.length > 0) {
+      const done = todo.subtasks.filter((s) => s.done).length;
+      main.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
     }
 
     // Private todos live in a plain JSON blob, not a note — there's no
@@ -172,6 +199,8 @@ export class DailySelectionModal extends Modal {
       };
       buttons.push(btn);
     });
+
+    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.renderList());
   }
 
   updateHint() {

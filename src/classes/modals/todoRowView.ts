@@ -2,7 +2,7 @@ import { Menu, TFile, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, TodoStatus, TODO_STATUS_LABELS } from "../../types";
-import { deadlineUrgency, setTodoStatus, todayDate, tomorrowDate } from "../../utils/todos";
+import { deadlineUrgency, setSubtaskDone, setTodoStatus, todayDate, tomorrowDate } from "../../utils/todos";
 import { TodoEditModal } from "./TodoEditModal";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,9 @@ export function renderTodoRow(
   if (todo.deadline) {
     main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
   }
+  if (todo.estimatedMinutes) {
+    main.createEl("span", { text: `~${todo.estimatedMinutes}m`, cls: "novel-todo-estimate-badge" });
+  }
 
   // Assigning to today/tomorrow only makes sense from a general list — a row
   // already sitting inside a day section has the remove button below
@@ -134,6 +137,80 @@ export function renderTodoRow(
       await refresh();
     };
   }
+}
+
+/** Compact checklist for a todo's subtasks — checkbox + text, no inline
+ * editing (that stays in TodoEditModal). Used by the row renderers that let
+ * you work through a todo's subtasks one at a time (daily planning, session
+ * planning/sidebar) once expanded via their own chevron toggle. */
+export function renderSubtaskChecklist(
+  app: App,
+  container: HTMLElement,
+  todo: TodoItem,
+  onChange: () => void | Promise<void>
+): void {
+  const list = container.createEl("div", { cls: "novel-todo-subtask-checklist" });
+  todo.subtasks.forEach((sub) => {
+    const row = list.createEl("div", { cls: "novel-todo-subtask-checklist-row" });
+    const checkbox = row.createEl("input", { attr: { type: "checkbox" }, cls: "novel-todo-subtask-checklist-checkbox" });
+    checkbox.checked = sub.done;
+    checkbox.onclick = async (evt) => {
+      evt.stopPropagation();
+      await setSubtaskDone(app, todo, sub.id, checkbox.checked);
+      sub.done = checkbox.checked;
+      await onChange();
+    };
+    row.createEl("span", {
+      text: sub.text,
+      cls: "novel-todo-subtask-checklist-text" + (sub.done ? " is-done" : ""),
+    });
+  });
+}
+
+/** Chevron that expands a todo's subtasks into a nested checklist below the
+ * row — used by the compact row renderers that don't go through
+ * renderTodoRow (DailySelectionModal, SessionPlanModal, SessionView,
+ * DailyPlannerModal). Always creates the chevron element, even when the todo
+ * has no subtasks, and just leaves it empty/inert in that case — otherwise a
+ * trailing element (the Must/Maybe toggle, `margin-left: auto`) ends up
+ * flush with the row's true right edge on todos without subtasks but short
+ * of it (by the chevron's width) on todos that have one, so rows visibly
+ * don't line up with each other. */
+export function renderSubtaskExpandToggle(
+  app: App,
+  row: HTMLElement,
+  container: HTMLElement,
+  todo: TodoItem,
+  expandedTodoIds: Set<string>,
+  onChange: () => void | Promise<void>
+): void {
+  const chevron = row.createEl("span", { cls: "novel-todo-scene-chevron" });
+  if (todo.subtasks.length === 0) return;
+
+  const isExpanded = expandedTodoIds.has(todo.id);
+  setIcon(chevron, isExpanded ? "chevron-down" : "chevron-right");
+  chevron.setAttr("aria-label", "Show subtasks");
+  const body = container.createEl("div", { cls: "novel-todo-subtask-checklist-wrap" });
+  body.style.display = isExpanded ? "" : "none";
+  let built = false;
+  const buildBody = () => {
+    if (built) return;
+    built = true;
+    renderSubtaskChecklist(app, body, todo, onChange);
+  };
+  if (isExpanded) buildBody();
+  chevron.onclick = (evt) => {
+    evt.stopPropagation();
+    const nowExpanded = !expandedTodoIds.has(todo.id);
+    if (nowExpanded) {
+      expandedTodoIds.add(todo.id);
+      buildBody();
+    } else {
+      expandedTodoIds.delete(todo.id);
+    }
+    setIcon(chevron, nowExpanded ? "chevron-down" : "chevron-right");
+    body.style.display = nowExpanded ? "" : "none";
+  };
 }
 
 /** Opens the todo's file and scrolls to its own line, via the same `^id`

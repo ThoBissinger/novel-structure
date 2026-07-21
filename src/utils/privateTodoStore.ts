@@ -13,11 +13,15 @@ import { TodoEntry } from "../types";
 
 /** Entries written before the open/in_progress/done status field existed
  * only have the old `done: boolean` — backfilled here on read so a vault
- * that predates that change doesn't need its own migration step. */
+ * that predates that change doesn't need its own migration step. Same idea
+ * for estimatedMinutes, added later still — independent of the status
+ * backfill above, so it applies regardless of which branch fires there. */
 function normalizeEntry(raw: TodoEntry & { done?: boolean }): TodoEntry {
-  if (raw.status) return raw;
-  const { done, ...rest } = raw;
-  return { ...rest, status: done ? "done" : "open" };
+  const withStatus = raw.status ? raw : (() => {
+    const { done, ...rest } = raw;
+    return { ...rest, status: done ? "done" : "open" } as TodoEntry;
+  })();
+  return { ...withStatus, estimatedMinutes: withStatus.estimatedMinutes ?? null };
 }
 
 export function parsePrivateTodos(content: string): TodoEntry[] {

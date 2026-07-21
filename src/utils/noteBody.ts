@@ -229,25 +229,29 @@ export function generateTodoId(): string {
 
 const DEADLINE_MARKER_RE = /\s\(due:\s*(\d{4}-\d{2}-\d{2})\)$/;
 const RECURRENCE_MARKER_RE = /\s\(every:\s*(\d+)d\)$/;
+const ESTIMATE_MARKER_RE = /\s\(est:\s*(\d+)\)$/;
 
 /** Strips priority markers (current and legacy), a deadline marker, a
- * recurrence marker, and any surrogate/replacement-char debris off the end
- * of a todo's text — in whatever order they appear, so hand-typed lines
- * aren't picky about it. The outermost (rightmost) recognized priority
- * marker is the newest, so the first one found wins; older ones underneath
- * are stripped without changing the priority again. Same idea for the
- * deadline/recurrence markers. */
+ * recurrence marker, an estimated-minutes marker, and any
+ * surrogate/replacement-char debris off the end of a todo's text — in
+ * whatever order they appear, so hand-typed lines aren't picky about it.
+ * The outermost (rightmost) recognized priority marker is the newest, so
+ * the first one found wins; older ones underneath are stripped without
+ * changing the priority again. Same idea for the deadline/recurrence/
+ * estimate markers. */
 function stripTodoMarkers(raw: string): {
   text: string;
   priority: TodoEntry["priority"];
   deadline: string | null;
   recurrenceDays: number | null;
+  estimatedMinutes: number | null;
 } {
   let text = raw;
   let priority: TodoEntry["priority"] = "medium";
   let priorityFound = false;
   let deadline: string | null = null;
   let recurrenceDays: number | null = null;
+  let estimatedMinutes: number | null = null;
   const take = (p: TodoEntry["priority"], len: number) => {
     if (!priorityFound) {
       priority = p;
@@ -270,6 +274,12 @@ function stripTodoMarkers(raw: string): {
       text = text.slice(0, -everyMatch[0].length);
       continue;
     }
+    const estMatch = text.match(ESTIMATE_MARKER_RE);
+    if (estMatch) {
+      if (estimatedMinutes === null) estimatedMinutes = parseInt(estMatch[1], 10);
+      text = text.slice(0, -estMatch[0].length);
+      continue;
+    }
     if (text.endsWith("(high)")) take("high", 6);
     else if (text.endsWith("(low)")) take("low", 5);
     else if (text.endsWith("⏫")) take("high", 1); // BMP char, one code unit
@@ -287,21 +297,21 @@ function stripTodoMarkers(raw: string): {
       else break;
     }
   }
-  return { text, priority, deadline, recurrenceDays };
+  return { text, priority, deadline, recurrenceDays, estimatedMinutes };
 }
 
 function parseTodoLine(line: string): TodoEntry | null {
   const m = line.match(TODO_LINE_RE);
   if (!m) return null;
   const status = charToStatus(m[1]);
-  const { text, priority, deadline, recurrenceDays } = stripTodoMarkers(m[2].trim());
+  const { text, priority, deadline, recurrenceDays, estimatedMinutes } = stripTodoMarkers(m[2].trim());
   // A hand-typed checklist line (no plugin-added `^id` yet) still needs one
   // to be addressable — assign it lazily on first read.
   const id = m[3] ?? generateTodoId();
   // doneDate only matters for the private JSON todo store (see
   // privateTodoStore.ts) — scene todos never carry it, this is just here
   // to satisfy the shared TodoEntry shape.
-  return { id, text, status, priority, deadline, subtasks: [], recurrenceDays, doneDate: null };
+  return { id, text, status, priority, deadline, subtasks: [], recurrenceDays, doneDate: null, estimatedMinutes };
 }
 
 function parseSubtaskLine(line: string): TodoSubtask | null {
@@ -316,7 +326,8 @@ function parseSubtaskLine(line: string): TodoSubtask | null {
 function serializeTodoLine(entry: TodoEntry): string {
   const deadlinePart = entry.deadline ? ` (due: ${entry.deadline})` : "";
   const recurrencePart = entry.recurrenceDays ? ` (every: ${entry.recurrenceDays}d)` : "";
-  const parentLine = `- [${statusToChar(entry.status)}] ${entry.text}${deadlinePart}${recurrencePart}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
+  const estimatePart = entry.estimatedMinutes ? ` (est: ${entry.estimatedMinutes})` : "";
+  const parentLine = `- [${statusToChar(entry.status)}] ${entry.text}${deadlinePart}${recurrencePart}${estimatePart}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
   return [parentLine, ...entry.subtasks.map(serializeSubtaskLine)].join("\n");
 }
 

@@ -55,6 +55,13 @@ export interface DailySelection {
   maybe: string[]; // todo IDs
 }
 
+/** A week's loose priority list — unlike DailySelection, no must/maybe split;
+ * picking a day's specific must/maybe is what the daily ritual is for. */
+export interface WeeklySelection {
+  weekStart: string; // YYYY-MM-DD, the Monday of that week
+  todoIds: string[];
+}
+
 /** How a structure note's raw frontmatter/properties block is displayed by
  * default: fully hidden, just the structural links (parent/subsections/
  * previous/next), or Obsidian's normal full properties view. */
@@ -70,6 +77,7 @@ export interface NovelStructureSettings {
   // never auto-archive (still shown under "Completed", just never tagged).
   privateTodoArchiveDays: number | null;
   dailySelections: Record<string, DailySelection>; // date -> selection
+  weeklySelections: Record<string, WeeklySelection>; // week-start date -> selection
   typeLabels: Record<StructureType, string>; // display/filename label per structure type
   includeTypeInFileName: boolean; // prefix new file names with their type label, e.g. "Scene - Title"
   boardVisibleDepth: StructureType; // deepest level shown as a card grid by default on the novel board; anything deeper needs focusing a card to reveal
@@ -102,6 +110,11 @@ export interface NovelStructureSettings {
   mcpServerEnabled: boolean;
   mcpServerPort: number;
   mcpServerToken: string;
+  activeSession: SessionState | null;
+  // Freely-named habits tracked as daily checkboxes (Daily planner) and
+  // rolled up into a weekly grid (Weekly planner). Empty = tracking hidden
+  // entirely in both places.
+  habitNames: string[];
 }
 
 export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
@@ -124,6 +137,7 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   privateTodoFile: "Private-Todos.json",
   privateTodoArchiveDays: null,
   dailySelections: {},
+  weeklySelections: {},
   typeLabels: { ...DEFAULT_TYPE_LABELS },
   includeTypeInFileName: true,
   boardVisibleDepth: "subchapter",
@@ -136,11 +150,16 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   mcpServerEnabled: false,
   mcpServerPort: 27124,
   mcpServerToken: "",
+  activeSession: null,
+  habitNames: [],
 };
 
 export const VIEW_TYPE_STRUCTURE = "novel-structure-view";
 export const VIEW_TYPE_BOARD = "novel-structure-board-view";
 export const VIEW_TYPE_NARRATIVE_CHART = "novel-structure-narrative-chart-view";
+export const VIEW_TYPE_ROADMAP = "novel-structure-roadmap-view";
+export const VIEW_TYPE_SESSION = "novel-structure-session-view";
+export const VIEW_TYPE_WEEKLY = "novel-structure-weekly-view";
 
 export type Priority = "high" | "medium" | "low";
 
@@ -188,6 +207,10 @@ export interface TodoEntry {
   // untouched since it never really completes. Used for the private-todo
   // archive.
   doneDate: string | null;
+  // Rough estimated time to completion, in minutes — null if unset. Mainly
+  // useful for session planning (see session.ts): budgeting a work session's
+  // picked todos against how much time is actually available.
+  estimatedMinutes: number | null;
 }
 
 /** A todo resolved with its file context, for display/UI purposes. */
@@ -200,7 +223,22 @@ export interface TodoItem {
   subtasks: TodoSubtask[];
   recurrenceDays: number | null;
   doneDate: string | null;
+  estimatedMinutes: number | null;
   source: "scene" | "private";
   filePath: string;
   fileTitle: string;
+}
+
+/** A running (or 5-minute-planning) work session — see session.ts for the
+ * derived-phase helpers and mutators. Only ever one at a time, hence a
+ * single nullable object on settings rather than a Record keyed by date
+ * like DailySelection/WeeklySelection. */
+export interface SessionState {
+  startedAt: number; // epoch ms
+  plannedMinutes: number;
+  todoIds: string[];
+  // Lets "Start working now →" end the 5-minute planning phase early,
+  // without needing a separate stored phase that could drift out of sync
+  // with startedAt.
+  planningEndedEarly: boolean;
 }

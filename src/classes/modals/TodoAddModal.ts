@@ -16,6 +16,7 @@ export class TodoAddModal extends Modal {
   priority: Priority = "medium";
   deadline: string | null = null;
   recurrenceDays: number | null = null;
+  estimatedMinutes: number | null = null;
   subtaskTexts: string[] = [];
   onDone: () => void;
 
@@ -24,13 +25,15 @@ export class TodoAddModal extends Modal {
     plugin: NovelStructurePlugin,
     targets: TodoTarget[],
     initialIndex: number,
-    onDone: () => void
+    onDone: () => void,
+    initialDeadline: string | null = null
   ) {
     super(app);
     this.plugin = plugin;
     this.targets = targets;
     this.targetIndex = initialIndex;
     this.onDone = onDone;
+    this.deadline = initialDeadline;
   }
 
   onOpen() {
@@ -124,7 +127,20 @@ export class TodoAddModal extends Modal {
       .setDesc("Optional. Highlighted the day before, red once due/overdue.")
       .addText((t) => {
         t.inputEl.type = "date";
+        t.inputEl.value = this.deadline ?? "";
         t.onChange((v) => (this.deadline = v || null));
+      });
+
+    new Setting(contentEl)
+      .setName("Estimated minutes")
+      .setDesc("Optional. Used for session planning.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "1";
+        t.onChange((v) => {
+          const n = parseInt(v, 10);
+          this.estimatedMinutes = Number.isFinite(n) && n >= 1 ? n : null;
+        });
       });
 
     // Recurrence only makes sense for private todos (chores etc.), not for
@@ -218,7 +234,8 @@ export class TodoAddModal extends Modal {
             this.priority,
             this.deadline,
             this.recurrenceDays,
-            this.subtaskTexts
+            this.subtaskTexts,
+            this.estimatedMinutes
           );
           this.close();
           this.onDone();

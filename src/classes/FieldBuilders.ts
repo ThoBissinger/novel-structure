@@ -48,6 +48,40 @@ export function addTextAreaField(
   return textarea;
 }
 
+/** Compact field: a row of 1..max pill buttons instead of an input — used
+ * for small numeric ratings (e.g. energy/motivation, 1-5). No numeric-scale
+ * widget existed before this; a button row reuses the same
+ * .novel-structure-mode-group/-mode-btn pill styling already used for every
+ * other discrete choice in the plugin (priority/scene toggle, must/maybe
+ * picks, …) instead of introducing a native `<input type=range>` that would
+ * look and behave differently from everything around it. */
+export function addRatingField(
+  parent: HTMLElement,
+  label: string,
+  value: number | null,
+  max: number,
+  onSave: (v: number) => void
+): HTMLElement {
+  const wrap = parent.createEl("div", { cls: "novel-board-field novel-board-field-inline" });
+  wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
+  const group = wrap.createDiv({ cls: "novel-structure-mode-group novel-board-rating-group" });
+  const buttons: HTMLElement[] = [];
+  for (let n = 1; n <= max; n++) {
+    const btn = group.createEl("button", {
+      text: String(n),
+      cls: "novel-structure-inline-btn novel-structure-mode-btn",
+    });
+    if (value === n) btn.addClass("is-active");
+    btn.onclick = () => {
+      buttons.forEach((b) => b.removeClass("is-active"));
+      btn.addClass("is-active");
+      onSave(n);
+    };
+    buttons.push(btn);
+  }
+  return group;
+}
+
 export function addDropdownField(
   parent: HTMLElement,
   label: string,
