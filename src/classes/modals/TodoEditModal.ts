@@ -11,6 +11,9 @@ import {
   setSubtaskText,
   setTodoDeadline,
   setTodoEstimatedMinutes,
+  parseQuickDate,
+  setTodoNeedsReview,
+  setTodoNotes,
   setTodoPriority,
   setTodoRecurrence,
   setTodoStatus,
@@ -37,6 +40,7 @@ export class TodoEditModal extends Modal {
   deadline: string | null;
   recurrenceDays: number | null;
   estimatedMinutes: number | null;
+  notes: string;
   onDone: () => void;
 
   constructor(app: App, plugin: NovelStructurePlugin, todo: TodoItem, onDone: () => void) {
@@ -49,6 +53,7 @@ export class TodoEditModal extends Modal {
     this.deadline = todo.deadline;
     this.recurrenceDays = todo.recurrenceDays;
     this.estimatedMinutes = todo.estimatedMinutes;
+    this.notes = todo.notes;
     this.onDone = onDone;
   }
 
@@ -80,11 +85,31 @@ export class TodoEditModal extends Modal {
 
     new Setting(contentEl)
       .setName("Deadline")
-      .setDesc("Optional. Highlighted the day before, red once due/overdue.")
+      .setDesc('Optional. "YYYY-MM-DD", "today", "tomorrow", or "+7" (days from today). Highlighted the day before, red once due/overdue.')
       .addText((t) => {
-        t.inputEl.type = "date";
+        t.setPlaceholder("YYYY-MM-DD, today, +7…");
         t.inputEl.value = this.deadline ?? "";
-        t.onChange((v) => (this.deadline = v || null));
+        const commit = () => {
+          const raw = t.inputEl.value.trim();
+          if (!raw) {
+            this.deadline = null;
+            return;
+          }
+          const parsed = parseQuickDate(raw);
+          if (parsed) {
+            this.deadline = parsed;
+            t.inputEl.value = parsed;
+          } else {
+            new Notice(`Couldn't parse "${raw}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
+          }
+        };
+        t.inputEl.addEventListener("blur", commit);
+        t.inputEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter") {
+            evt.preventDefault();
+            commit();
+          }
+        });
       });
 
     new Setting(contentEl)
@@ -116,6 +141,15 @@ export class TodoEditModal extends Modal {
           });
         });
     }
+
+    new Setting(contentEl)
+      .setName("Notes")
+      .setDesc("Optional. A URL, an email address, a stray comment — anything extra that isn't a step.")
+      .addTextArea((t) => {
+        t.setValue(this.notes).onChange((v) => (this.notes = v));
+        t.inputEl.rows = 3;
+        t.inputEl.style.width = "100%";
+      });
 
     new Setting(contentEl).setName("Subtasks").setDesc("Changes here save immediately, independent of \"Save\" below.");
     const subtaskList = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-list" });
@@ -243,6 +277,12 @@ export class TodoEditModal extends Modal {
             if (this.estimatedMinutes !== this.todo.estimatedMinutes) {
               await setTodoEstimatedMinutes(this.app, this.todo, this.estimatedMinutes);
             }
+            if (this.notes !== this.todo.notes) await setTodoNotes(this.app, this.todo, this.notes);
+            // Editing a quick todo here is exactly what it means to "flesh
+            // it out" — clear the review flag regardless of which fields
+            // actually changed, so it stops resurfacing in the session-
+            // start review.
+            if (this.todo.needsReview) await setTodoNeedsReview(this.app, this.todo, false);
             this.close();
             this.onDone();
           })

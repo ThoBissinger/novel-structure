@@ -12,6 +12,7 @@ import {
   startSession,
 } from "../../utils/session";
 import { collectTodos, isTodoRelevantFile, setTodoStatus } from "../../utils/todos";
+import { QuickTodoReviewModal } from "../modals/QuickTodoReviewModal";
 import { SessionPlanModal } from "../modals/SessionPlanModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
 import { renderSubtaskExpandToggle } from "../modals/todoRowView";
@@ -120,7 +121,7 @@ export class SessionView extends ItemView {
     container.createEl("p", { text: `${formatMinSec(planningRemainingMs(session))} left to plan`, cls: "novel-session-countdown" });
 
     const planBtn = container.createEl("button", { text: "Plan session", cls: "mod-cta novel-session-plan-btn" });
-    planBtn.onclick = () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open();
+    planBtn.onclick = () => this.openSessionPlanModal();
 
     const skipBtn = container.createEl("button", { text: "Start working now →", cls: "novel-structure-inline-btn" });
     skipBtn.onclick = async () => {
@@ -129,6 +130,22 @@ export class SessionView extends ItemView {
     };
 
     this.renderTodoList(container, sessionTodos);
+  }
+
+  /** Gate in front of SessionPlanModal: if there are quick todos still
+   * flagged `needsReview` (added on the go via QuickTodoModal, text-only),
+   * a review step goes first — same reasoning as the check-in banner
+   * elsewhere, this is meant to catch you right when you actually sit down
+   * to work, not nag at any other time. Skips straight to planning if
+   * there's nothing to review. */
+  private async openSessionPlanModal() {
+    const pending = (await collectTodos(this.plugin)).filter((t) => t.needsReview && t.status !== "done");
+    const openPlanModal = () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open();
+    if (pending.length > 0) {
+      new QuickTodoReviewModal(this.app, this.plugin, pending, openPlanModal).open();
+    } else {
+      openPlanModal();
+    }
   }
 
   private renderWorkingPhase(container: HTMLElement, sessionTodos: TodoItem[]) {

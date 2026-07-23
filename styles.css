@@ -649,16 +649,19 @@ textarea.novel-board-field-input {
 .novel-todo-modal-subtask-text {
   flex: 1;
   font-size: 0.9em;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
   color: inherit;
   padding: 1px 4px;
   border-radius: 3px;
 }
-.novel-todo-modal-subtask-text:hover,
+.novel-todo-modal-subtask-text:hover {
+  border-color: var(--text-faint);
+}
 .novel-todo-modal-subtask-text:focus {
-  border-color: var(--background-modifier-border);
-  background: var(--background-primary);
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb, 76, 139, 245), 0.18);
 }
 .novel-todo-modal-subtask-text.is-done {
   text-decoration: line-through;
@@ -771,14 +774,21 @@ textarea.novel-board-field-input {
 }
 
 .novel-thread-current-scene {
-  margin: 8px 0;
-  padding: 8px 10px;
+  margin: 10px 0;
+  padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid var(--interactive-accent, #7c3aed);
   background: var(--background-secondary);
 }
+/* Deliberately not an accent/link color — on themes where --interactive-accent
+   resolves to blue (many do), it read as indistinguishable from the "happened
+   before"/"happens later" links above and below it. Bold + larger + no color
+   tint instead, so "This scene: …" reads as the timeline's focal point rather
+   than a link or a subordinate caption underneath the group above it. */
 .novel-thread-current-scene .novel-board-field-label {
-  color: var(--interactive-accent, #7c3aed);
+  color: var(--text-normal);
+  font-size: 0.85em;
+  font-weight: 700;
 }
 
 .novel-board-bullet-list {
@@ -1598,6 +1608,30 @@ textarea.novel-board-field-input {
 }
 .novel-structure-info-link:hover {
   text-decoration: underline;
+}
+
+/* "Story info" mode additions — a plain-text summary paragraph and a
+   per-thread-kind group (link + a short async preview of what happens with
+   it in *this* scene), on top of the label/link-row styling above that both
+   info modes already share. */
+.novel-structure-info-summary {
+  line-height: 1.4;
+  opacity: 0.9;
+}
+.novel-structure-info-thread-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.novel-structure-info-thread-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding-left: 2px;
+}
+.novel-structure-info-thread-preview {
+  opacity: 0.75;
 }
 
 @keyframes novel-board-flash-anim {

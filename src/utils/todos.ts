@@ -134,6 +134,8 @@ async function migrateLegacyTodos(app: App, file: TFile): Promise<void> {
     recurrenceDays: e.recurrenceDays ?? null,
     doneDate: e.doneDate ?? null,
     estimatedMinutes: e.estimatedMinutes ?? null,
+    needsReview: e.needsReview ?? false,
+    notes: e.notes ?? "",
   }));
   await app.vault.process(file, (data) => {
     const split = splitFrontmatterAndBody(data);
@@ -234,6 +236,8 @@ export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoIt
         recurrenceDays: entry.recurrenceDays,
         doneDate: entry.doneDate,
         estimatedMinutes: entry.estimatedMinutes,
+        needsReview: entry.needsReview,
+        notes: entry.notes,
         source: isPrivate ? "private" : "scene",
         filePath: file.path,
         fileTitle,
@@ -365,6 +369,8 @@ export async function promoteSubtask(app: App, item: TodoItem, subtaskId: string
     recurrenceDays: null,
     doneDate: sub.done ? todayDate() : null,
     estimatedMinutes: null,
+    needsReview: false,
+    notes: "",
   });
 
   if (file.extension === "json") {
@@ -425,7 +431,9 @@ export async function addTodo(
   deadline: string | null = null,
   recurrenceDays: number | null = null,
   subtaskTexts: string[] = [],
-  estimatedMinutes: number | null = null
+  estimatedMinutes: number | null = null,
+  needsReview = false,
+  notes = ""
 ): Promise<void> {
   const subtasks = subtaskTexts.map((t) => ({ id: generateTodoId(), text: t, done: false }));
   const newEntry: TodoEntry = {
@@ -438,6 +446,8 @@ export async function addTodo(
     recurrenceDays,
     doneDate: null,
     estimatedMinutes,
+    needsReview,
+    notes,
   };
 
   if (file.extension === "json") {
@@ -452,6 +462,26 @@ export async function addTodo(
     entries.push(newEntry);
     return frontmatterBlock + writeTodos(body, entries);
   });
+}
+
+/** The fast-capture path (QuickTodoModal, meant to be usable one-handed on
+ * mobile): text only, everything else defaulted and flagged `needsReview`
+ * so it surfaces in QuickTodoReviewModal at the next session start instead
+ * of quietly blending in with deliberately-filled-in todos. Always private
+ * — picking a scene/chapter is exactly the friction this path exists to
+ * skip; moving it into a scene later, if it turns out to belong to one,
+ * still goes through the normal edit flow. */
+export async function addQuickTodo(app: App, plugin: NovelStructurePlugin, text: string): Promise<void> {
+  const file = await ensurePrivateTodoFile(plugin);
+  await addTodo(app, file, text, "medium", null, null, [], null, true);
+}
+
+export async function setTodoNotes(app: App, item: TodoItem, notes: string): Promise<void> {
+  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.notes = notes));
+}
+
+export async function setTodoNeedsReview(app: App, item: TodoItem, needsReview: boolean): Promise<void> {
+  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.needsReview = needsReview));
 }
 
 /** Days between today and `deadline` ("YYYY-MM-DD"), negative if overdue.
@@ -523,6 +553,23 @@ export function tomorrowDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return formatDate(d);
+}
+
+/** Shorthand for a deadline field, parsed on blur instead of always needing
+ * the date picker: an exact "YYYY-MM-DD", "today", "tomorrow", or a
+ * relative "+N" (optionally "+Nd"/"+N days", with or without a leading
+ * "today") for N days from today. Returns null for anything that isn't one
+ * of those, so an in-progress or genuinely invalid entry isn't silently
+ * turned into some other date. */
+export function parseQuickDate(input: string): string | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (trimmed === "today") return todayDate();
+  if (trimmed === "tomorrow") return tomorrowDate();
+  const relative = trimmed.match(/^(?:today)?\s*\+\s*(\d+)\s*(?:d|days?)?$/);
+  if (relative) return addDays(todayDate(), parseInt(relative[1], 10));
+  return null;
 }
 
 /** The Monday on/before `dateStr` — the key weekly planning is stored under.

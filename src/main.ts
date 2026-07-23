@@ -13,6 +13,7 @@ import {
 } from "./types";
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
+import { renderLinkifiedText } from "./classes/FieldBuilders";
 import { McpHttpServer } from "./mcp/server";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
 import { LocationOverviewModal } from "./classes/modals/LocationOverviewModal";
@@ -20,6 +21,7 @@ import { exportStructureToCsv } from "./utils/exportCsv";
 import { DailyPlannerModal } from "./classes/modals/DailyPlannerModal";
 import { DocxPickModal } from "./classes/modals/DocxPickModal";
 import { MetadataEditorModal } from "./classes/modals/MetadataEditorModal";
+import { QuickTodoModal } from "./classes/modals/QuickTodoModal";
 import { RootNoteModal } from "./classes/modals/RootNoteModal";
 import { StatusModal } from "./classes/modals/StatusModal";
 import { ThreadEditorModal } from "./classes/modals/ThreadEditorModal";
@@ -35,7 +37,14 @@ import { StructureView } from "./classes/views/StructureView";
 import { WeeklyView } from "./classes/views/WeeklyView";
 import { splitBody } from "./utils/noteBody";
 import { findRootNote, updateStructureMetadata } from "./utils/rootNote";
-import { isThreadFile, refreshThreadTrackerQuery, regenerateThreadsBase, ThreadKind } from "./utils/threads";
+import {
+  getThreadDevelopmentForScene,
+  isThreadFile,
+  refreshThreadTrackerQuery,
+  regenerateThreadsBase,
+  threadFieldNames,
+  ThreadKind,
+} from "./utils/threads";
 import { migratePrivateTodoStoreIfNeeded, readTodosForFile, todayDate, tomorrowDate } from "./utils/todos";
 
 // Obsidian's internal class name for the Properties/frontmatter widget isn't
@@ -62,20 +71,23 @@ interface StructureViewActions {
 // A direct 3-way selector, not a cycle — each mode is independently
 // clickable/selectable (both as header icons and as inline buttons) so you
 // can jump straight to any of the three instead of stepping through them.
-const FRONTMATTER_MODES: FrontmatterDisplayMode[] = ["hidden", "structure", "visible"];
+const FRONTMATTER_MODES: FrontmatterDisplayMode[] = ["hidden", "structure", "story", "visible"];
 const FRONTMATTER_MODE_LABEL: Record<FrontmatterDisplayMode, string> = {
   hidden: "Hide",
   structure: "Structure",
+  story: "Story",
   visible: "Full",
 };
 const FRONTMATTER_MODE_TOOLTIP: Record<FrontmatterDisplayMode, string> = {
   hidden: "Hide properties",
   structure: "Show structure info only",
+  story: "Show story info (summary, characters, time, locations, threads)",
   visible: "Show full properties",
 };
 const FRONTMATTER_MODE_ICON: Record<FrontmatterDisplayMode, string> = {
   hidden: "eye-off",
   structure: "list",
+  story: "book-open",
   visible: "eye",
 };
 
@@ -382,6 +394,12 @@ export default class NovelStructurePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "novel-structure-quick-todo",
+      name: "Add quick todo",
+      callback: () => new QuickTodoModal(this.app, this).open(),
+    });
+
+    this.addCommand({
       id: "novel-structure-root-note",
       name: "Create/edit novel root note",
       callback: () => {
@@ -409,6 +427,7 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.addRibbonIcon("layout-list", "Open novel structure", () => this.activateStructureView());
     this.addRibbonIcon("list-checks", "Open todo planning", () => new TodoHubModal(this.app, this, "plan").open());
+    this.addRibbonIcon("zap", "Quick todo", () => new QuickTodoModal(this.app, this).open());
     this.addRibbonIcon("calendar-check", "Open today's planner", () =>
       new DailyPlannerModal(this.app, this, todayDate(), () => {}).open()
     );
@@ -488,8 +507,9 @@ export default class NovelStructurePlugin extends Plugin {
 
       const infoBlock = bar.querySelector<HTMLElement>(".novel-structure-info-block");
       if (infoBlock) {
-        infoBlock.toggleClass("is-visible", mode === "structure");
+        infoBlock.toggleClass("is-visible", mode === "structure" || mode === "story");
         if (mode === "structure" && view.file) this.renderStructureInfoInto(infoBlock, view.file);
+        else if (mode === "story" && view.file) this.renderStoryInfoInto(infoBlock, view.file);
       }
     }
   }
@@ -499,34 +519,107 @@ export default class NovelStructurePlugin extends Plugin {
     this.applyFrontmatterVisibility(view);
   }
 
+  /** A label + one or more [[link]]s as clickable entries, opening the
+   * target note in the current pane — shared by both the "structure" and
+   * "story" inline info modes so there's exactly one place that resolves
+   * and opens a frontmatter link. Renders nothing (not even the label) if
+   * every link in the list is empty, so callers can pass e.g.
+   * `fm.side_characters ?? []` unconditionally. */
+  private renderInfoLinkRow(container: HTMLElement, file: TFile, label: string, links: (string | undefined)[]) {
+    const values = links.filter((l): l is string => !!l);
+    if (values.length === 0) return;
+    const row = container.createDiv({ cls: "novel-structure-info-row" });
+    row.createSpan({ text: label, cls: "novel-structure-info-label" });
+    values.forEach((link) => {
+      const basename = extractLinkBasename(link);
+      if (!basename) return;
+      const a = row.createEl("a", { text: basename, cls: "novel-structure-info-link", href: "#" });
+      a.onclick = (evt) => {
+        evt.preventDefault();
+        const target = this.app.metadataCache.getFirstLinkpathDest(basename, file.path);
+        if (target) this.app.workspace.getLeaf(false).openFile(target);
+      };
+    });
+  }
+
   /** Renders the note's structural links only — parent, previous, next,
    * subsections — as clickable entries, for "structure info only" mode. */
   private renderStructureInfoInto(container: HTMLElement, file: TFile) {
     container.empty();
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
 
-    const addRow = (label: string, links: (string | undefined)[]) => {
-      const values = links.filter((l): l is string => !!l);
-      if (values.length === 0) return;
-      const row = container.createDiv({ cls: "novel-structure-info-row" });
-      row.createSpan({ text: label, cls: "novel-structure-info-label" });
-      values.forEach((link) => {
-        const basename = extractLinkBasename(link);
-        if (!basename) return;
-        const a = row.createEl("a", { text: basename, cls: "novel-structure-info-link", href: "#" });
-        a.onclick = (evt) => {
-          evt.preventDefault();
-          const target = this.app.metadataCache.getFirstLinkpathDest(basename, file.path);
-          if (target) this.app.workspace.getLeaf(false).openFile(target);
-        };
-      });
-    };
-
-    addRow("Parent", [fm.parent]);
-    addRow("Previous", [fm.previous]);
-    addRow("Next", [fm.next]);
-    addRow("Subsections", fm.subsections ?? []);
+    this.renderInfoLinkRow(container, file, "Parent", [fm.parent]);
+    this.renderInfoLinkRow(container, file, "Previous", [fm.previous]);
+    this.renderInfoLinkRow(container, file, "Next", [fm.next]);
+    this.renderInfoLinkRow(container, file, "Subsections", fm.subsections ?? []);
     if (!container.hasChildNodes()) container.setText("No structural links yet.");
+  }
+
+  /** Read-only "story bible" glance for "story info" mode — summary,
+   * characters, time, locations, and linked threads (with a short async
+   * preview of what happens with each thread in *this* scene) — everything
+   * StructureNoteEditor lets you edit, minus the editing, since this is
+   * meant to be read while writing, not filled in from here. Editing still
+   * only ever happens through "Edit data"/"Threads" (one place per field,
+   * same reasoning as StructureNoteEditor's own thread section). */
+  private renderStoryInfoInto(container: HTMLElement, file: TFile) {
+    container.empty();
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+
+    if (fm.summary) {
+      const summaryEl = container.createDiv({ cls: "novel-structure-info-summary" });
+      renderLinkifiedText(this.app, summaryEl, fm.summary as string, file.path);
+    }
+
+    this.renderInfoLinkRow(container, file, "Focus", [fm.focus_character]);
+    this.renderInfoLinkRow(container, file, "Side characters", fm.side_characters ?? []);
+    this.renderInfoLinkRow(container, file, "Mentioned", fm.characters_mentioned ?? []);
+
+    if (fm.year || fm.month) {
+      const row = container.createDiv({ cls: "novel-structure-info-row" });
+      row.createSpan({ text: "Time", cls: "novel-structure-info-label" });
+      const parts: string[] = [];
+      if (fm.month) parts.push(String(fm.month).padStart(2, "0"));
+      if (fm.year) parts.push(String(fm.year));
+      row.createSpan({ text: parts.join("/") });
+    }
+
+    this.renderInfoLinkRow(container, file, "Locations", fm.locations ?? []);
+
+    (["conflict", "motif", "event", "plant"] as ThreadKind[]).forEach((kind) =>
+      this.renderStoryThreadGroup(container, file, fm, kind)
+    );
+
+    if (!container.hasChildNodes()) container.setText("No story info yet.");
+  }
+
+  /** One thread kind's linked entries, each with a short async preview of
+   * that thread's development text *in this scene* (not the whole thread's
+   * history — see getThreadDevelopmentForScene) so you can tell at a glance
+   * what's actually relevant here without opening the thread note. */
+  private renderStoryThreadGroup(container: HTMLElement, file: TFile, fm: Record<string, any>, kind: ThreadKind) {
+    const { links: linksField } = threadFieldNames(kind);
+    const label = kind === "conflict" ? "Conflicts" : kind === "motif" ? "Motifs" : kind === "event" ? "Events" : "Plants";
+    const links: string[] = fm[linksField] ?? [];
+    if (links.length === 0) return;
+
+    const group = container.createDiv({ cls: "novel-structure-info-thread-group" });
+    group.createSpan({ text: label, cls: "novel-structure-info-label" });
+    links.forEach((link) => {
+      const basename = extractLinkBasename(link);
+      if (!basename) return;
+      const row = group.createDiv({ cls: "novel-structure-info-thread-row" });
+      const a = row.createEl("a", { text: basename, cls: "novel-structure-info-link", href: "#" });
+      a.onclick = (evt) => {
+        evt.preventDefault();
+        const target = this.app.metadataCache.getFirstLinkpathDest(basename, file.path);
+        if (target) this.app.workspace.getLeaf(false).openFile(target);
+      };
+      const preview = row.createSpan({ cls: "novel-structure-info-thread-preview" });
+      getThreadDevelopmentForScene(this.app, file, basename).then((text) => {
+        if (text) renderLinkifiedText(this.app, preview, text, file.path);
+      });
+    });
   }
 
   /** Inserts (or moves, if the file in this pane changed) the inline button

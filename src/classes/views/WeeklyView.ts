@@ -1,4 +1,4 @@
-import { ItemView, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_WEEKLY } from "../../types";
 import {
@@ -13,7 +13,15 @@ import {
   regenerateThemeBody,
   writeNotesTrailer,
 } from "../../utils/checkInNotes";
-import { addDays, collectTodos, isTodoRelevantFile, sortTodosForDisplay, thisWeekStart, todayDate } from "../../utils/todos";
+import {
+  addDays,
+  collectTodos,
+  isTodoRelevantFile,
+  parseQuickDate,
+  sortTodosForDisplay,
+  thisWeekStart,
+  todayDate,
+} from "../../utils/todos";
 import { addTextAreaField, addTextField } from "../FieldBuilders";
 import { DailyPlannerModal } from "../modals/DailyPlannerModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
@@ -211,30 +219,60 @@ export class WeeklyView extends ItemView {
     let deadline = (fm[deadlineKey] as string) ?? "";
     const refreshProgress = () => this.renderGoalProgress(progressEl, deadline || null, start || null);
 
-    addTextField(
-      datesRow,
-      "Start (optional)",
-      start,
-      (v) => {
-        start = v;
-        void save((f) => (f[startKey] = v || null));
-        refreshProgress();
-      },
-      { type: "date" }
-    );
-    addTextField(
-      datesRow,
-      "Deadline (optional)",
-      deadline,
-      (v) => {
-        deadline = v;
-        void save((f) => (f[deadlineKey] = v || null));
-        refreshProgress();
-      },
-      { type: "date" }
-    );
+    this.renderQuickDateField(datesRow, "Start (optional)", start, (v) => {
+      start = v;
+      void save((f) => (f[startKey] = v || null));
+      refreshProgress();
+    });
+    this.renderQuickDateField(datesRow, "Deadline (optional)", deadline, (v) => {
+      deadline = v;
+      void save((f) => (f[deadlineKey] = v || null));
+      refreshProgress();
+    });
 
     refreshProgress();
+  }
+
+  /** A "YYYY-MM-DD"/"today"/"tomorrow"/"+7" field, committed on blur — not
+   * a native `<input type=date>` (see parseQuickDate for why: the browser's
+   * own year-field clamping turned out to be unreliable, letting an
+   * arbitrarily long year get typed in). `onSave` only fires once the text
+   * actually resolves to a real date; an empty field clears it, anything
+   * else unparseable is rejected with a Notice and the field reverts. */
+  private renderQuickDateField(parent: HTMLElement, label: string, value: string, onSave: (v: string) => void) {
+    const wrap = parent.createEl("div", { cls: "novel-board-field" });
+    wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
+    const input = wrap.createEl("input", { cls: "novel-board-field-input" });
+    input.placeholder = "YYYY-MM-DD, today, +7…";
+    input.value = value;
+    const commit = () => {
+      const raw = input.value.trim();
+      if (!raw) {
+        if (value !== "") {
+          value = "";
+          onSave("");
+        }
+        return;
+      }
+      const parsed = parseQuickDate(raw);
+      if (!parsed) {
+        new Notice(`Couldn't parse "${raw}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
+        input.value = value;
+        return;
+      }
+      input.value = parsed;
+      if (parsed !== value) {
+        value = parsed;
+        onSave(parsed);
+      }
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") {
+        evt.preventDefault();
+        commit();
+      }
+    });
   }
 
   private renderGoalProgress(container: HTMLElement, deadline: string | null, start: string | null) {

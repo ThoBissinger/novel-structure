@@ -65,7 +65,7 @@ export interface WeeklySelection {
 /** How a structure note's raw frontmatter/properties block is displayed by
  * default: fully hidden, just the structural links (parent/subsections/
  * previous/next), or Obsidian's normal full properties view. */
-export type FrontmatterDisplayMode = "hidden" | "structure" | "visible";
+export type FrontmatterDisplayMode = "hidden" | "structure" | "story" | "visible";
 
 export interface NovelStructureSettings {
   structureFolder: string; // vault-relative path, everything lives here
@@ -211,6 +211,19 @@ export interface TodoEntry {
   // useful for session planning (see session.ts): budgeting a work session's
   // picked todos against how much time is actually available.
   estimatedMinutes: number | null;
+  // Set by the quick-add flow (QuickTodoModal) — everything about the todo
+  // besides its text is a guessed default (medium priority, no deadline),
+  // so it's flagged for a proper pass later instead of silently blending in
+  // with deliberately-filled-in todos. Cleared once you actually edit it
+  // (TodoEditModal's Save) or explicitly accept the defaults as fine
+  // (QuickTodoReviewModal) — see session.ts's session-start review step.
+  needsReview: boolean;
+  // Freeform extra info (a URL, an email address, a stray comment) that
+  // doesn't belong in the todo's own text and isn't a step (subtasks) —
+  // "" if unset. Multi-line; stored as indented `> ` lines under the todo
+  // in scene notes (see noteBody.ts), a plain string field in the private
+  // JSON store.
+  notes: string;
 }
 
 /** A todo resolved with its file context, for display/UI purposes. */
@@ -224,6 +237,8 @@ export interface TodoItem {
   recurrenceDays: number | null;
   doneDate: string | null;
   estimatedMinutes: number | null;
+  needsReview: boolean;
+  notes: string;
   source: "scene" | "private";
   filePath: string;
   fileTitle: string;

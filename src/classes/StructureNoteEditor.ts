@@ -1,4 +1,4 @@
-import { App, TFile, setIcon } from "obsidian";
+import { App, Notice, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../main";
 import { PRIORITY_COLORS, STATUS_TYPES } from "../types";
 import { characterCandidateRank } from "../utils/characters";
@@ -9,6 +9,7 @@ import {
   addTodo,
   deadlineUrgency,
   nextPriority,
+  parseQuickDate,
   readTodosForFile,
   removeTodo,
   setTodoDeadline,
@@ -255,21 +256,35 @@ export class StructureNoteEditor {
           });
         }
 
-        const deadlineInput = row.createEl("input", { cls: "novel-board-todo-deadline", attr: { type: "date" } });
+        const deadlineInput = row.createEl("input", {
+          cls: "novel-board-todo-deadline",
+          attr: { type: "text", placeholder: "YYYY-MM-DD, today, +7…" },
+        });
         const initialDeadline = entry.deadline ?? "";
         deadlineInput.value = initialDeadline;
         deadlineInput.onclick = (evt) => evt.stopPropagation();
-        // Committing on blur rather than "change" — a native date input can
-        // fire "change" mid-typing, as soon as a complete date is formed
-        // while still focused, which would blow away the field (and the
-        // rest of the card) on every keystroke instead of once you're done.
+        // Committing on blur, same reasoning as before switching this off a
+        // native date input (see parseQuickDate): a plain text field lets a
+        // "2026-01-0123456"-style overlong year actually get typed in the
+        // first place, so it needs its own validation now instead of
+        // relying on the browser's date-input clamping (which turned out to
+        // be unreliable here — the reason for this change).
         deadlineInput.addEventListener("blur", async () => {
-          if (deadlineInput.value === initialDeadline) return;
-          await setTodoDeadline(
-            this.app,
-            { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
-            deadlineInput.value || null
-          );
+          const raw = deadlineInput.value.trim();
+          if (raw === initialDeadline) return;
+          if (!raw) {
+            await setTodoDeadline(this.app, { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" }, null);
+            this.onChange();
+            return;
+          }
+          const parsed = parseQuickDate(raw);
+          if (!parsed) {
+            new Notice(`Couldn't parse "${raw}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
+            deadlineInput.value = initialDeadline;
+            return;
+          }
+          deadlineInput.value = parsed;
+          await setTodoDeadline(this.app, { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" }, parsed);
           this.onChange();
         });
 
@@ -298,14 +313,26 @@ export class StructureNoteEditor {
     const addRow = section.createEl("div", { cls: "novel-board-todo-add-row" });
     const input = addRow.createEl("input", { cls: "novel-board-field-input", attr: { placeholder: "Add a todo…" } });
     input.onclick = (evt) => evt.stopPropagation();
-    const deadlineInput = addRow.createEl("input", { cls: "novel-board-todo-deadline-input", attr: { type: "date" } });
+    const deadlineInput = addRow.createEl("input", {
+      cls: "novel-board-todo-deadline-input",
+      attr: { type: "text", placeholder: "Deadline: YYYY-MM-DD, today, +7…" },
+    });
     deadlineInput.onclick = (evt) => evt.stopPropagation();
     const addBtn = addRow.createEl("span", { cls: "novel-board-chip-add-btn" });
     setIcon(addBtn, "plus");
     const submit = async () => {
       const text = input.value.trim();
       if (!text) return;
-      await addTodo(this.app, this.file, text, "medium", deadlineInput.value || null);
+      const rawDeadline = deadlineInput.value.trim();
+      let deadline: string | null = null;
+      if (rawDeadline) {
+        deadline = parseQuickDate(rawDeadline);
+        if (!deadline) {
+          new Notice(`Couldn't parse "${rawDeadline}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
+          return;
+        }
+      }
+      await addTodo(this.app, this.file, text, "medium", deadline);
       input.value = "";
       deadlineInput.value = "";
       this.onChange();

@@ -21,7 +21,12 @@ function normalizeEntry(raw: TodoEntry & { done?: boolean }): TodoEntry {
     const { done, ...rest } = raw;
     return { ...rest, status: done ? "done" : "open" } as TodoEntry;
   })();
-  return { ...withStatus, estimatedMinutes: withStatus.estimatedMinutes ?? null };
+  return {
+    ...withStatus,
+    estimatedMinutes: withStatus.estimatedMinutes ?? null,
+    needsReview: withStatus.needsReview ?? false,
+    notes: withStatus.notes ?? "",
+  };
 }
 
 export function parsePrivateTodos(content: string): TodoEntry[] {

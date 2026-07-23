@@ -210,6 +210,10 @@ const TODO_LINE_RE = /^-\s\[([ xX/])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
 // column 0). No priority/deadline markers, and only open/done — subtasks
 // are plain steps, no in-progress state.
 const SUBTASK_LINE_RE = /^\s+-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
+// An indented blockquote-style line under a todo — freeform notes (a URL,
+// an email, a comment), not a step. Checked after SUBTASK_LINE_RE so the
+// two never compete (one starts with "-", this one with ">").
+const NOTE_LINE_RE = /^\s+>\s?(.*)$/;
 
 function statusToChar(status: TodoStatus): string {
   return status === "done" ? "x" : status === "in_progress" ? "/" : " ";
@@ -230,21 +234,23 @@ export function generateTodoId(): string {
 const DEADLINE_MARKER_RE = /\s\(due:\s*(\d{4}-\d{2}-\d{2})\)$/;
 const RECURRENCE_MARKER_RE = /\s\(every:\s*(\d+)d\)$/;
 const ESTIMATE_MARKER_RE = /\s\(est:\s*(\d+)\)$/;
+const NEEDS_REVIEW_MARKER_RE = /\s\(quick\)$/;
 
 /** Strips priority markers (current and legacy), a deadline marker, a
- * recurrence marker, an estimated-minutes marker, and any
- * surrogate/replacement-char debris off the end of a todo's text — in
- * whatever order they appear, so hand-typed lines aren't picky about it.
- * The outermost (rightmost) recognized priority marker is the newest, so
- * the first one found wins; older ones underneath are stripped without
- * changing the priority again. Same idea for the deadline/recurrence/
- * estimate markers. */
+ * recurrence marker, an estimated-minutes marker, a quick-add "needs
+ * review" marker, and any surrogate/replacement-char debris off the end of
+ * a todo's text — in whatever order they appear, so hand-typed lines aren't
+ * picky about it. The outermost (rightmost) recognized priority marker is
+ * the newest, so the first one found wins; older ones underneath are
+ * stripped without changing the priority again. Same idea for the deadline/
+ * recurrence/estimate/quick markers. */
 function stripTodoMarkers(raw: string): {
   text: string;
   priority: TodoEntry["priority"];
   deadline: string | null;
   recurrenceDays: number | null;
   estimatedMinutes: number | null;
+  needsReview: boolean;
 } {
   let text = raw;
   let priority: TodoEntry["priority"] = "medium";
@@ -252,6 +258,7 @@ function stripTodoMarkers(raw: string): {
   let deadline: string | null = null;
   let recurrenceDays: number | null = null;
   let estimatedMinutes: number | null = null;
+  let needsReview = false;
   const take = (p: TodoEntry["priority"], len: number) => {
     if (!priorityFound) {
       priority = p;
@@ -280,6 +287,12 @@ function stripTodoMarkers(raw: string): {
       text = text.slice(0, -estMatch[0].length);
       continue;
     }
+    const quickMatch = text.match(NEEDS_REVIEW_MARKER_RE);
+    if (quickMatch) {
+      needsReview = true;
+      text = text.slice(0, -quickMatch[0].length);
+      continue;
+    }
     if (text.endsWith("(high)")) take("high", 6);
     else if (text.endsWith("(low)")) take("low", 5);
     else if (text.endsWith("⏫")) take("high", 1); // BMP char, one code unit
@@ -297,21 +310,42 @@ function stripTodoMarkers(raw: string): {
       else break;
     }
   }
-  return { text, priority, deadline, recurrenceDays, estimatedMinutes };
+  return { text, priority, deadline, recurrenceDays, estimatedMinutes, needsReview };
 }
 
 function parseTodoLine(line: string): TodoEntry | null {
   const m = line.match(TODO_LINE_RE);
   if (!m) return null;
   const status = charToStatus(m[1]);
-  const { text, priority, deadline, recurrenceDays, estimatedMinutes } = stripTodoMarkers(m[2].trim());
+  const { text, priority, deadline, recurrenceDays, estimatedMinutes, needsReview } = stripTodoMarkers(m[2].trim());
   // A hand-typed checklist line (no plugin-added `^id` yet) still needs one
   // to be addressable — assign it lazily on first read.
   const id = m[3] ?? generateTodoId();
   // doneDate only matters for the private JSON todo store (see
   // privateTodoStore.ts) — scene todos never carry it, this is just here
-  // to satisfy the shared TodoEntry shape.
-  return { id, text, status, priority, deadline, subtasks: [], recurrenceDays, doneDate: null, estimatedMinutes };
+  // to satisfy the shared TodoEntry shape. notes starts empty — readTodos()
+  // fills it in from any NOTE_LINE_RE lines that follow.
+  return {
+    id,
+    text,
+    status,
+    priority,
+    deadline,
+    subtasks: [],
+    recurrenceDays,
+    doneDate: null,
+    estimatedMinutes,
+    needsReview,
+    notes: "",
+  };
+}
+
+/** Null (not a note line) vs. "" (a blank note line) both matter here — a
+ * blank line inside a multi-paragraph note round-trips instead of silently
+ * terminating it — so this can't just return "" for "no match". */
+function parseNoteLine(line: string): string | null {
+  const m = line.match(NOTE_LINE_RE);
+  return m ? m[1] : null;
 }
 
 function parseSubtaskLine(line: string): TodoSubtask | null {
@@ -327,8 +361,10 @@ function serializeTodoLine(entry: TodoEntry): string {
   const deadlinePart = entry.deadline ? ` (due: ${entry.deadline})` : "";
   const recurrencePart = entry.recurrenceDays ? ` (every: ${entry.recurrenceDays}d)` : "";
   const estimatePart = entry.estimatedMinutes ? ` (est: ${entry.estimatedMinutes})` : "";
-  const parentLine = `- [${statusToChar(entry.status)}] ${entry.text}${deadlinePart}${recurrencePart}${estimatePart}${TODO_PRIORITY_MARKER[entry.priority]} ^${entry.id}`;
-  return [parentLine, ...entry.subtasks.map(serializeSubtaskLine)].join("\n");
+  const quickPart = entry.needsReview ? " (quick)" : "";
+  const parentLine = `- [${statusToChar(entry.status)}] ${entry.text}${deadlinePart}${recurrencePart}${estimatePart}${TODO_PRIORITY_MARKER[entry.priority]}${quickPart} ^${entry.id}`;
+  const noteLines = entry.notes ? entry.notes.split("\n").map((l) => `  > ${l}`.trimEnd()) : [];
+  return [parentLine, ...entry.subtasks.map(serializeSubtaskLine), ...noteLines].join("\n");
 }
 
 function serializeSubtaskLine(sub: TodoSubtask): string {
@@ -355,11 +391,12 @@ export function todosNeedRewrite(body: string): boolean {
   return originalLines.some((line, i) => line !== expectedLines[i]);
 }
 
-/** Reads every todo (and its subtasks, if any) out of a structure note's
- * body "## Todos" section. Indented checklist lines right after a todo
- * line are that todo's subtasks; anything else (including a blank line)
- * doesn't reset which todo new subtask lines attach to, so a stray blank
- * line inside the block is harmless. */
+/** Reads every todo (and its subtasks/notes, if any) out of a structure
+ * note's body "## Todos" section. Indented checklist lines right after a
+ * todo line are that todo's subtasks, indented "> " lines are its notes;
+ * anything else (including a blank line) doesn't reset which todo new
+ * subtask/note lines attach to, so a stray blank line inside the block is
+ * harmless. */
 export function readTodos(body: string): TodoEntry[] {
   const { tail } = splitBody(body);
   const tailLines = tail.split("\n");
@@ -371,6 +408,12 @@ export function readTodos(body: string): TodoEntry[] {
     const subtask = parseSubtaskLine(line);
     if (subtask && entries.length > 0) {
       entries[entries.length - 1].subtasks.push(subtask);
+      continue;
+    }
+    const noteLine = parseNoteLine(line);
+    if (noteLine !== null && entries.length > 0) {
+      const last = entries[entries.length - 1];
+      last.notes = last.notes ? `${last.notes}\n${noteLine}` : noteLine;
       continue;
     }
     const entry = parseTodoLine(line);

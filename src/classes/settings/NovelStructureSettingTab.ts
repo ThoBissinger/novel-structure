@@ -97,6 +97,7 @@ export class NovelStructureSettingTab extends PluginSettingTab {
       .addDropdown((dd) => {
         dd.addOption("hidden", "Hidden");
         dd.addOption("structure", "Structure info only (parent/subsections/previous/next)");
+        dd.addOption("story", "Story info (summary/characters/time/locations/threads)");
         dd.addOption("visible", "Fully visible");
         dd.setValue(this.plugin.settings.defaultFrontmatterDisplay);
         dd.onChange(async (v) => {

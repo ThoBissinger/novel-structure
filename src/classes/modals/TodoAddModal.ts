@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Setting, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_ORDER, Priority } from "../../types";
-import { addTodo } from "../../utils/todos";
+import { addTodo, parseQuickDate } from "../../utils/todos";
 
 export interface TodoTarget {
   file: TFile;
@@ -17,6 +17,7 @@ export class TodoAddModal extends Modal {
   deadline: string | null = null;
   recurrenceDays: number | null = null;
   estimatedMinutes: number | null = null;
+  notes = "";
   subtaskTexts: string[] = [];
   onDone: () => void;
 
@@ -124,11 +125,31 @@ export class TodoAddModal extends Modal {
 
     new Setting(contentEl)
       .setName("Deadline")
-      .setDesc("Optional. Highlighted the day before, red once due/overdue.")
+      .setDesc('Optional. "YYYY-MM-DD", "today", "tomorrow", or "+7" (days from today). Highlighted the day before, red once due/overdue.')
       .addText((t) => {
-        t.inputEl.type = "date";
+        t.setPlaceholder("YYYY-MM-DD, today, +7…");
         t.inputEl.value = this.deadline ?? "";
-        t.onChange((v) => (this.deadline = v || null));
+        const commit = () => {
+          const raw = t.inputEl.value.trim();
+          if (!raw) {
+            this.deadline = null;
+            return;
+          }
+          const parsed = parseQuickDate(raw);
+          if (parsed) {
+            this.deadline = parsed;
+            t.inputEl.value = parsed;
+          } else {
+            new Notice(`Couldn't parse "${raw}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
+          }
+        };
+        t.inputEl.addEventListener("blur", commit);
+        t.inputEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter") {
+            evt.preventDefault();
+            commit();
+          }
+        });
       });
 
     new Setting(contentEl)
@@ -171,6 +192,15 @@ export class TodoAddModal extends Modal {
         modeChangeListeners.push(updateVisibility);
       }
     }
+
+    new Setting(contentEl)
+      .setName("Notes")
+      .setDesc("Optional. A URL, an email address, a stray comment — anything extra that isn't a step.")
+      .addTextArea((t) => {
+        t.onChange((v) => (this.notes = v));
+        t.inputEl.rows = 3;
+        t.inputEl.style.width = "100%";
+      });
 
     new Setting(contentEl).setName("Subtasks").setDesc("Optional. Break it down into concrete steps up front.");
     const subtaskList = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-list" });
@@ -235,7 +265,9 @@ export class TodoAddModal extends Modal {
             this.deadline,
             this.recurrenceDays,
             this.subtaskTexts,
-            this.estimatedMinutes
+            this.estimatedMinutes,
+            false,
+            this.notes
           );
           this.close();
           this.onDone();
