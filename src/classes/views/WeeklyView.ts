@@ -2,8 +2,10 @@ import { ItemView, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_WEEKLY } from "../../types";
 import {
+  computeGoalProgress,
   ensureDailyNote,
   ensureWeeklyNote,
+  formatGoalProgressLabel,
   readDailyCheckIn,
   readNotesTrailer,
   regenerateCheckInBody,
@@ -167,8 +169,8 @@ export class WeeklyView extends ItemView {
     addTextField(form, "This week's focus", (fm.theme as string) ?? "", (v) => save((f) => (f.theme = v)), {
       placeholder: "e.g. Finish act two",
     });
-    addTextAreaField(form, "Personal goal", (fm.personalGoal as string) ?? "", (v) => save((f) => (f.personalGoal = v)));
-    addTextAreaField(form, "Project goal", (fm.projectGoal as string) ?? "", (v) => save((f) => (f.projectGoal = v)));
+    this.renderGoalField(form, "Personal goal", fm, "personalGoal", "personalGoalStart", "personalGoalDeadline", save);
+    this.renderGoalField(form, "Project goal", fm, "projectGoal", "projectGoalStart", "projectGoalDeadline", save);
     addTextAreaField(form, "This will be a challenge", (fm.challenge as string) ?? "", (v) => save((f) => (f.challenge = v)));
     addTextAreaField(form, "Looking forward to", (fm.excitedFor as string) ?? "", (v) => save((f) => (f.excitedFor = v)));
     addTextAreaField(form, "Review (fill in as the week wraps up)", (fm.review as string) ?? "", (v) => save((f) => (f.review = v)));
@@ -177,6 +179,65 @@ export class WeeklyView extends ItemView {
       writeNotesTrailer(this.app, this.file, v)
     );
     notesArea.rows = 8;
+  }
+
+  /** A goal textarea plus an optional start/deadline date pair — the
+   * countdown/progress bar underneath is opt-in and only appears once a
+   * deadline is actually set (a start date on top of that upgrades it from
+   * a plain "N weeks left" countdown to a "Week X of Y" progress bar). */
+  private renderGoalField(
+    form: HTMLElement,
+    label: string,
+    fm: Record<string, unknown>,
+    textKey: string,
+    startKey: string,
+    deadlineKey: string,
+    save: (mutator: (f: Record<string, unknown>) => void) => Promise<void>
+  ) {
+    addTextAreaField(form, label, (fm[textKey] as string) ?? "", (v) => save((f) => (f[textKey] = v)));
+
+    const datesRow = form.createDiv({ cls: "novel-planner-goal-dates" });
+    const progressEl = form.createDiv({ cls: "novel-planner-goal-progress" });
+    let start = (fm[startKey] as string) ?? "";
+    let deadline = (fm[deadlineKey] as string) ?? "";
+    const refreshProgress = () => this.renderGoalProgress(progressEl, deadline || null, start || null);
+
+    addTextField(
+      datesRow,
+      "Start (optional)",
+      start,
+      (v) => {
+        start = v;
+        void save((f) => (f[startKey] = v || null));
+        refreshProgress();
+      },
+      { type: "date" }
+    );
+    addTextField(
+      datesRow,
+      "Deadline (optional)",
+      deadline,
+      (v) => {
+        deadline = v;
+        void save((f) => (f[deadlineKey] = v || null));
+        refreshProgress();
+      },
+      { type: "date" }
+    );
+
+    refreshProgress();
+  }
+
+  private renderGoalProgress(container: HTMLElement, deadline: string | null, start: string | null) {
+    container.empty();
+    const progress = computeGoalProgress(deadline, start, todayDate());
+    container.toggleClass("is-overdue", !!progress?.overdue);
+    if (!progress) return;
+    if (progress.fraction != null) {
+      const bar = container.createDiv({ cls: "novel-planner-goal-progress-bar" });
+      bar.createDiv({ cls: "novel-planner-goal-progress-fill" }).style.width = `${Math.round(progress.fraction * 100)}%`;
+    }
+    container.createEl("span", { text: formatGoalProgressLabel(progress), cls: "novel-planner-goal-progress-label" });
   }
 
   /** Compact glance grid — one row per tracked habit, one column per day of

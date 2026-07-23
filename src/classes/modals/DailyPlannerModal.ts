@@ -3,14 +3,16 @@ import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem } from "../../types";
 import {
   ScheduleBlock,
+  computeGoalProgress,
   ensureDailyNote,
+  formatGoalProgressLabel,
   readNotesTrailer,
   readWeeklyTheme,
   regenerateCheckInBody,
   writeNotesTrailer,
 } from "../../utils/checkInNotes";
 import { generateTodoId } from "../../utils/noteBody";
-import { collectTodos, mondayOfWeek, sortTodosForDisplay } from "../../utils/todos";
+import { collectTodos, mondayOfWeek, sortTodosForDisplay, todayDate } from "../../utils/todos";
 import { addRatingField, addTextAreaField } from "../FieldBuilders";
 import { friendlyDateLabel, SELECTION_OPTIONS, SelectionValue } from "./DailySelectionModal";
 import { TodoEditModal } from "./TodoEditModal";
@@ -20,6 +22,14 @@ type PlannerTab = "checkin" | "schedule" | "todos" | "reflection";
 
 function formatTime(mins: number): string {
   return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+}
+
+/** A sensible default start time for the next block: right after the latest
+ * one already placed, or 9am if the schedule is still empty. */
+function nextDefaultStartMinutes(blocks: ScheduleBlock[]): number {
+  if (blocks.length === 0) return 9 * 60;
+  const latest = blocks.reduce((max, b) => Math.max(max, b.startMinutes + b.durationMinutes), 0);
+  return Math.min(latest, 23 * 60 + 45);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +120,7 @@ export class DailyPlannerModal extends Modal {
     if (theme?.theme) {
       contentEl.createEl("div", { text: `This week: “${theme.theme}”`, cls: "novel-week-theme-banner" });
     }
+    if (theme) this.renderGoalCountdowns(contentEl, theme);
 
     const tabBar = contentEl.createDiv({ cls: "novel-structure-mode-group novel-todo-hub-tabs" });
     const tabs: [PlannerTab, string][] = [
@@ -130,6 +141,25 @@ export class DailyPlannerModal extends Modal {
     else if (this.activeTab === "schedule") this.renderScheduleTab(tab);
     else if (this.activeTab === "todos") this.renderTodosTab(tab);
     else this.renderReflectionTab(tab);
+  }
+
+  /** Read-only countdown badges for this week's personal/project goal —
+   * only shown per-goal when that goal actually has a deadline set (see
+   * WeeklyView, where those dates are edited). */
+  private renderGoalCountdowns(container: HTMLElement, theme: { personalGoal: string; personalGoalStart: string | null; personalGoalDeadline: string | null; projectGoal: string; projectGoalStart: string | null; projectGoalDeadline: string | null }) {
+    const row = container.createDiv({ cls: "novel-planner-goal-countdowns" });
+    const addBadge = (label: string, deadline: string | null, start: string | null) => {
+      const progress = computeGoalProgress(deadline, start, todayDate());
+      if (!progress) return;
+      const badge = row.createEl("span", {
+        text: `${label}: ${formatGoalProgressLabel(progress)}`,
+        cls: "novel-planner-goal-countdown-badge",
+      });
+      badge.toggleClass("is-overdue", progress.overdue);
+    };
+    addBadge("Personal goal", theme.personalGoalDeadline, theme.personalGoalStart);
+    addBadge("Project goal", theme.projectGoalDeadline, theme.projectGoalStart);
+    if (row.childElementCount === 0) row.remove();
   }
 
   private frontmatterSave(mutator: (f: Record<string, unknown>) => void): () => Promise<void> {
@@ -175,88 +205,154 @@ export class DailyPlannerModal extends Modal {
 
   // -- Schedule tab --------------------------------------------------------
 
-  /** A continuous, quarter-hour-granularity schedule of placed blocks
-   * (start time + duration), not one fixed row per hour — so it only shows
-   * what's actually planned, and each block can come straight from a todo
-   * picked in the Todos tab (pulling in its own estimated time) instead of
-   * re-typing/re-estimating it here. */
+  /** A continuous, quarter-hour-granularity schedule of placed blocks (start
+   * time + duration), not one fixed row per hour — so it only shows what's
+   * actually planned. Today's must/maybe picks (from the Todos tab) that
+   * aren't on the schedule yet show up as standing suggestions right here —
+   * turning one into a block just needs a start time, plus a duration only
+   * if the todo doesn't already have its own estimated time. Rebuilding only
+   * the scheduled-list/suggestions containers on every add/remove (not the
+   * whole tab) keeps the custom-block row's own in-progress input untouched. */
   private renderScheduleTab(container: HTMLElement) {
     const fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter ?? {};
     const blocks: ScheduleBlock[] = ((fm.scheduleBlocks as ScheduleBlock[] | undefined) ?? []).slice();
     const commitBlocks = () => this.frontmatterSave((f) => (f.scheduleBlocks = blocks))();
 
     const list = container.createEl("div", { cls: "novel-planner-schedule-list" });
-    const renderList = () => {
-      list.empty();
-      if (blocks.length === 0) {
-        list.createEl("p", { text: "Nothing scheduled yet.", cls: "novel-todo-empty" });
-      }
-      blocks
-        .slice()
-        .sort((a, b) => a.startMinutes - b.startMinutes)
-        .forEach((block) => {
-          const row = list.createEl("div", { cls: "novel-planner-schedule-row" });
-          const checkbox = row.createEl("input", { cls: "novel-planner-hourly-checkbox", attr: { type: "checkbox" } });
-          checkbox.checked = block.done;
-          checkbox.onclick = () => {
-            block.done = checkbox.checked;
-            void commitBlocks();
-            row.toggleClass("is-done", block.done);
-          };
-          row.toggleClass("is-done", block.done);
-          row.createEl("span", {
-            text: `${formatTime(block.startMinutes)}–${formatTime(block.startMinutes + block.durationMinutes)}`,
-            cls: "novel-planner-schedule-time",
-          });
-          row.createEl("span", { text: block.label, cls: "novel-planner-schedule-text" });
-          const removeBtn = row.createEl("span", { cls: "novel-todo-remove-btn" });
-          setIcon(removeBtn, "x");
-          removeBtn.setAttr("aria-label", "Remove from schedule");
-          removeBtn.onclick = () => {
-            const idx = blocks.findIndex((b) => b.id === block.id);
-            if (idx !== -1) blocks.splice(idx, 1);
-            void commitBlocks();
-            renderList();
-          };
-        });
+    const suggestBox = container.createEl("div", { cls: "novel-planner-schedule-suggestions" });
+    const refresh = () => {
+      this.renderScheduledList(list, blocks, commitBlocks, refresh);
+      this.renderScheduleSuggestions(suggestBox, blocks, commitBlocks, refresh);
     };
-    renderList();
+    refresh();
 
+    this.renderScheduleAddRow(container, blocks, commitBlocks, refresh);
+  }
+
+  private renderScheduledList(
+    list: HTMLElement,
+    blocks: ScheduleBlock[],
+    commitBlocks: () => Promise<void>,
+    refresh: () => void
+  ) {
+    list.empty();
+    if (blocks.length === 0) {
+      list.createEl("p", { text: "Nothing scheduled yet.", cls: "novel-todo-empty" });
+    }
+    blocks
+      .slice()
+      .sort((a, b) => a.startMinutes - b.startMinutes)
+      .forEach((block) => {
+        const row = list.createEl("div", { cls: "novel-planner-schedule-row" });
+        const checkbox = row.createEl("input", { cls: "novel-planner-hourly-checkbox", attr: { type: "checkbox" } });
+        checkbox.checked = block.done;
+        checkbox.onclick = () => {
+          block.done = checkbox.checked;
+          void commitBlocks();
+          row.toggleClass("is-done", block.done);
+        };
+        row.toggleClass("is-done", block.done);
+        row.createEl("span", {
+          text: `${formatTime(block.startMinutes)}–${formatTime(block.startMinutes + block.durationMinutes)}`,
+          cls: "novel-planner-schedule-time",
+        });
+        row.createEl("span", { text: block.label, cls: "novel-planner-schedule-text" });
+        const removeBtn = row.createEl("span", { cls: "novel-todo-remove-btn" });
+        setIcon(removeBtn, "x");
+        removeBtn.setAttr("aria-label", "Remove from schedule");
+        removeBtn.onclick = () => {
+          const idx = blocks.findIndex((b) => b.id === block.id);
+          if (idx !== -1) blocks.splice(idx, 1);
+          void commitBlocks();
+          refresh();
+        };
+      });
+  }
+
+  /** Today's/tomorrow's must/maybe picks not already on the schedule — a
+   * standing suggestion list, not a picker you have to open, so scheduling
+   * one of them is just "set a time (and a duration, if it doesn't already
+   * have one) and add it". */
+  private renderScheduleSuggestions(
+    box: HTMLElement,
+    blocks: ScheduleBlock[],
+    commitBlocks: () => Promise<void>,
+    refresh: () => void
+  ) {
+    box.empty();
+    const scheduledTodoIds = new Set(blocks.map((b) => b.todoId).filter((id): id is string => !!id));
+    const suggestions = this.todos.filter(
+      (t) => (this.selection[t.id] === "must" || this.selection[t.id] === "maybe") && !scheduledTodoIds.has(t.id)
+    );
+    if (suggestions.length === 0) return;
+
+    box.createEl("div", { cls: "novel-todo-column-header" }).createEl("h4", { text: "From today's todos" });
+    suggestions.forEach((todo) => {
+      const row = box.createEl("div", { cls: "novel-planner-schedule-suggestion-row" });
+      const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
+      dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+      row.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
+
+      const timeInput = row.createEl("input", {
+        cls: "novel-planner-schedule-add-time",
+        attr: { type: "time", step: "900" },
+      });
+      timeInput.value = formatTime(nextDefaultStartMinutes(blocks));
+
+      let durationInput: HTMLInputElement | null = null;
+      if (todo.estimatedMinutes) {
+        row.createEl("span", { text: `~${todo.estimatedMinutes}m`, cls: "novel-todo-estimate-badge" });
+      } else {
+        durationInput = row.createEl("input", {
+          cls: "novel-planner-schedule-add-duration",
+          attr: { type: "number", min: "15", step: "15", placeholder: "min" },
+        });
+        durationInput.value = "15";
+      }
+
+      const addBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+      setIcon(addBtn, "plus");
+      addBtn.setAttr("aria-label", "Add to schedule");
+      addBtn.onclick = () => {
+        const [h, m] = timeInput.value.split(":").map(Number);
+        if (Number.isNaN(h) || Number.isNaN(m)) return;
+        const duration = todo.estimatedMinutes ?? Math.max(15, parseInt(durationInput?.value ?? "15", 10) || 15);
+        blocks.push({
+          id: generateTodoId(),
+          startMinutes: h * 60 + m,
+          durationMinutes: duration,
+          todoId: todo.id,
+          label: todo.text,
+          done: false,
+        });
+        void commitBlocks();
+        refresh();
+      };
+    });
+  }
+
+  /** For anything that isn't one of today's todos (a break, an errand, …). */
+  private renderScheduleAddRow(
+    container: HTMLElement,
+    blocks: ScheduleBlock[],
+    commitBlocks: () => Promise<void>,
+    refresh: () => void
+  ) {
     const addRow = container.createEl("div", { cls: "novel-planner-schedule-add" });
     const timeInput = addRow.createEl("input", {
       cls: "novel-planner-schedule-add-time",
       attr: { type: "time", step: "900" },
     });
-    timeInput.value = "09:00";
+    timeInput.value = formatTime(nextDefaultStartMinutes(blocks));
     const durationInput = addRow.createEl("input", {
       cls: "novel-planner-schedule-add-duration",
       attr: { type: "number", min: "15", step: "15" },
     });
     durationInput.value = "15";
-
-    // Only today's/tomorrow's own picks — scheduling is about turning an
-    // already-chosen must/maybe todo into a time slot, not browsing the
-    // whole open-todo list again.
-    const todoCandidates = this.todos.filter((t) => this.selection[t.id] === "must" || this.selection[t.id] === "maybe");
-    const select = addRow.createEl("select", { cls: "novel-planner-schedule-add-select" });
-    select.createEl("option", { text: "Custom text…", value: "" });
-    todoCandidates.forEach((t) => {
-      select.createEl("option", { text: t.estimatedMinutes ? `${t.text} (~${t.estimatedMinutes}m)` : t.text, value: t.id });
-    });
-
     const labelInput = addRow.createEl("input", {
       cls: "novel-planner-schedule-add-label",
-      attr: { type: "text", placeholder: "What are you doing?" },
+      attr: { type: "text", placeholder: "Something else…" },
     });
-
-    select.onchange = () => {
-      const todo = todoCandidates.find((t) => t.id === select.value);
-      labelInput.disabled = !!todo;
-      if (todo) {
-        labelInput.value = todo.text;
-        if (todo.estimatedMinutes) durationInput.value = String(todo.estimatedMinutes);
-      }
-    };
 
     const addBtn = addRow.createEl("button", { text: "+ Add", cls: "mod-cta" });
     addBtn.onclick = () => {
@@ -267,15 +363,13 @@ export class DailyPlannerModal extends Modal {
         id: generateTodoId(),
         startMinutes: h * 60 + m,
         durationMinutes: Math.max(15, parseInt(durationInput.value, 10) || 15),
-        todoId: select.value || null,
+        todoId: null,
         label,
         done: false,
       });
       void commitBlocks();
-      renderList();
+      refresh();
       labelInput.value = "";
-      labelInput.disabled = false;
-      select.value = "";
       durationInput.value = "15";
     };
   }

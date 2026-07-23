@@ -895,9 +895,9 @@ textarea.novel-board-field-input {
 }
 
 /* Continuous, quarter-hour-granularity schedule — a chronological list of
-   placed blocks (only what's actually planned, not one row per hour) plus a
-   fixed add-row below it to place a new one, optionally sourced from one of
-   today's picked todos. */
+   placed blocks (only what's actually planned, not one row per hour), a
+   standing list of today's not-yet-scheduled todos as suggestions, and a
+   fixed add-row below both for anything else (a break, an errand, …). */
 .novel-planner-hourly-checkbox {
   flex-shrink: 0;
 }
@@ -936,6 +936,30 @@ textarea.novel-board-field-input {
   white-space: nowrap;
 }
 
+/* Suggestions — same compact-row look as everywhere else todos show up
+   (priority dot, ellipsized text), plus a time input, an optional duration
+   input (only when the todo has no estimate of its own) and an add button. */
+.novel-planner-schedule-suggestions {
+  margin-bottom: 14px;
+}
+.novel-planner-schedule-suggestion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+.novel-planner-schedule-suggestion-row:hover {
+  background: var(--background-modifier-hover);
+}
+.novel-planner-schedule-suggestion-row .novel-todo-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .novel-planner-schedule-add {
   display: flex;
   align-items: center;
@@ -952,17 +976,12 @@ textarea.novel-board-field-input {
   flex-shrink: 0;
   width: 4.5em;
 }
-.novel-planner-schedule-add-select {
-  flex: 1 1 160px;
-  min-width: 0;
-}
 .novel-planner-schedule-add-label {
   flex: 1 1 160px;
   min-width: 0;
 }
 .novel-planner-schedule-add-time,
 .novel-planner-schedule-add-duration,
-.novel-planner-schedule-add-select,
 .novel-planner-schedule-add-label {
   font-size: 0.85em;
   padding: 4px 6px;
@@ -1847,6 +1866,70 @@ svg.has-hover .novel-narrative-line:not(.is-hovered) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* Optional start/deadline pair under a goal field, and the countdown/
+   progress bar beneath it — both stay empty (no bar, no label) until a
+   deadline is actually set, so a goal with no dates takes up no extra
+   vertical space. */
+.novel-planner-goal-dates {
+  display: flex;
+  gap: 12px;
+  margin-top: -8px;
+}
+.novel-planner-goal-dates .novel-board-field {
+  flex: 1;
+}
+.novel-planner-goal-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.novel-planner-goal-progress:empty {
+  display: none;
+}
+.novel-planner-goal-progress-bar {
+  flex: 1;
+  max-width: 160px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.novel-planner-goal-progress-fill {
+  height: 100%;
+  background: var(--interactive-accent, #7c3aed);
+  border-radius: inherit;
+}
+.novel-planner-goal-progress-label {
+  font-size: 0.78em;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.novel-planner-goal-progress.is-overdue .novel-planner-goal-progress-label {
+  color: var(--text-error, #dc2626);
+  opacity: 1;
+}
+
+/* Read-only goal countdown badges near the daily planner's weekly-theme
+   banner — same quiet pill look as the other compact badges. */
+.novel-planner-goal-countdowns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 10px 2px;
+}
+.novel-planner-goal-countdown-badge {
+  font-size: 0.75em;
+  opacity: 0.75;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+}
+.novel-planner-goal-countdown-badge.is-overdue {
+  color: var(--text-error, #dc2626);
+  opacity: 1;
 }
 
 .novel-weekly-habit-grid {

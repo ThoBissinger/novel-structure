@@ -58,10 +58,59 @@ export interface WeeklyTheme {
   weekStart: string;
   theme: string;
   personalGoal: string;
+  personalGoalStart: string | null;
+  personalGoalDeadline: string | null;
   projectGoal: string;
+  projectGoalStart: string | null;
+  projectGoalDeadline: string | null;
   challenge: string;
   excitedFor: string;
   review: string;
+}
+
+/** Countdown/progress info for a goal with an optional deadline — null
+ * (never shown) unless a deadline is actually set. `weekLabel`/`fraction`
+ * are additionally available only when a start date is also set, since
+ * "Week X of Y" needs a start to count from; without one, callers fall back
+ * to a plain days/weeks-left countdown via formatGoalProgressLabel. */
+export interface GoalProgress {
+  daysLeft: number;
+  overdue: boolean;
+  weekLabel: string | null;
+  fraction: number | null;
+}
+
+export function computeGoalProgress(deadline: string | null, start: string | null, today: string): GoalProgress | null {
+  if (!deadline) return null;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const toTime = (s: string) => new Date(`${s}T00:00:00`).getTime();
+  const daysLeft = Math.round((toTime(deadline) - toTime(today)) / dayMs);
+
+  let weekLabel: string | null = null;
+  let fraction: number | null = null;
+  if (start) {
+    const totalDays = Math.max(1, Math.round((toTime(deadline) - toTime(start)) / dayMs));
+    const elapsedDays = Math.round((toTime(today) - toTime(start)) / dayMs);
+    const totalWeeks = Math.max(1, Math.ceil(totalDays / 7));
+    const weekIndex = Math.min(totalWeeks, Math.max(1, Math.floor(elapsedDays / 7) + 1));
+    weekLabel = `Week ${weekIndex} of ${totalWeeks}`;
+    fraction = Math.max(0, Math.min(1, elapsedDays / totalDays));
+  }
+  return { daysLeft, overdue: daysLeft < 0, weekLabel, fraction };
+}
+
+export function formatGoalProgressLabel(progress: GoalProgress): string {
+  if (progress.weekLabel) return progress.weekLabel;
+  if (progress.overdue) {
+    const d = Math.abs(progress.daysLeft);
+    return `${d} day${d === 1 ? "" : "s"} overdue`;
+  }
+  if (progress.daysLeft === 0) return "Due today";
+  if (progress.daysLeft >= 14) {
+    const weeks = Math.round(progress.daysLeft / 7);
+    return `${weeks} week${weeks === 1 ? "" : "s"} left`;
+  }
+  return `${progress.daysLeft} day${progress.daysLeft === 1 ? "" : "s"} left`;
 }
 
 function dailyNoteFolder(plugin: NovelStructurePlugin): string {
@@ -147,7 +196,11 @@ export function readWeeklyTheme(app: App, plugin: NovelStructurePlugin, weekStar
     weekStart,
     theme: (fm.theme as string) ?? "",
     personalGoal: (fm.personalGoal as string) ?? "",
+    personalGoalStart: (fm.personalGoalStart as string) ?? null,
+    personalGoalDeadline: (fm.personalGoalDeadline as string) ?? null,
     projectGoal: (fm.projectGoal as string) ?? "",
+    projectGoalStart: (fm.projectGoalStart as string) ?? null,
+    projectGoalDeadline: (fm.projectGoalDeadline as string) ?? null,
     challenge: (fm.challenge as string) ?? "",
     excitedFor: (fm.excitedFor as string) ?? "",
     review: (fm.review as string) ?? "",
@@ -198,14 +251,20 @@ export async function regenerateCheckInBody(app: App, file: TFile): Promise<void
 
 export async function regenerateThemeBody(app: App, file: TFile): Promise<void> {
   const fm = app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+  const goalDeadlineLine = (start: unknown, deadline: unknown): string | null => {
+    if (!deadline) return null;
+    return start ? `*(deadline: ${deadline as string}, started ${start as string})*` : `*(deadline: ${deadline as string})*`;
+  };
   const derived = [
     fm.theme ? `# ${fm.theme}` : "*(no theme set)*",
     "",
     "## Personal goal",
     (fm.personalGoal as string) || "*(nothing set)*",
+    goalDeadlineLine(fm.personalGoalStart, fm.personalGoalDeadline),
     "",
     "## Project goal",
     (fm.projectGoal as string) || "*(nothing set)*",
+    goalDeadlineLine(fm.projectGoalStart, fm.projectGoalDeadline),
     "",
     "## This will be a challenge",
     (fm.challenge as string) || "*(nothing set)*",
