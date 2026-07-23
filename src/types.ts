@@ -215,8 +215,9 @@ export interface TodoEntry {
   // besides its text is a guessed default (medium priority, no deadline),
   // so it's flagged for a proper pass later instead of silently blending in
   // with deliberately-filled-in todos. Cleared once you actually edit it
-  // (TodoEditModal's Save) or explicitly accept the defaults as fine
-  // (QuickTodoReviewModal) — see session.ts's session-start review step.
+  // (TodoEditModal's Save) or explicitly accept the defaults as fine —
+  // see TodoHubModal's "Quick todos to flesh out" section, which is where
+  // that happens; SessionView just links there instead of gating anything.
   needsReview: boolean;
   // Freeform extra info (a URL, an email address, a stray comment) that
   // doesn't belong in the todo's own text and isn't a step (subtasks) —

@@ -1,13 +1,22 @@
-import { App, Modal, TFile } from "obsidian";
+import { App, Modal, setIcon, TFile } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import {
   CHARACTER_ROLE_LABELS,
   CHARACTER_ROLES,
+  CHARACTER_SCENE_ROLE_LABELS,
   CharacterRole,
+  characterCandidateRank,
   collectKnownCharacters,
   getCharacterRole,
   setCharacterRole,
 } from "../../utils/characters";
+import {
+  discardPendingCandidate,
+  listPendingCandidates,
+  PendingCandidate,
+  resolvePendingCandidate,
+} from "../../utils/pendingCandidates";
+import { NoteLinkSuggest } from "../NoteLinkSuggest";
 
 // ---------------------------------------------------------------------------
 // Every note already linked as a character anywhere in the book (see
@@ -37,6 +46,8 @@ export class CharacterOverviewModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "Characters" });
+
+    this.renderPendingSection(contentEl);
 
     const roleRank = (role: CharacterRole | undefined) => (role ? CHARACTER_ROLES.indexOf(role) : CHARACTER_ROLES.length);
     const known = collectKnownCharacters(this.app, this.plugin.settings).sort((a, b) => {
@@ -98,6 +109,79 @@ export class CharacterOverviewModal extends Modal {
         };
       });
     });
+  }
+
+  /** Names an MCP-driven assistant spotted but couldn't safely resolve on
+   * its own (see pendingCandidates.ts) — shown above the regular list since
+   * these need a decision before they mean anything, unlike the list below
+   * which is just informational. Nothing here if there's nothing pending. */
+  private renderPendingSection(contentEl: HTMLElement) {
+    const pending = listPendingCandidates(this.app, this.plugin.settings, "character");
+    if (pending.length === 0) return;
+
+    contentEl.createEl("h3", { text: `Pending candidates (${pending.length})` });
+    contentEl.createEl("p", {
+      text: "Names an AI assistant spotted but couldn't safely resolve on its own — assign each to an existing character, or promote it to a new one.",
+      cls: "novel-board-readonly",
+    });
+
+    const list = contentEl.createDiv({ cls: "novel-pending-list" });
+    pending.forEach((candidate) => this.renderPendingRow(list, candidate));
+    contentEl.createEl("hr");
+  }
+
+  private renderPendingRow(container: HTMLElement, candidate: PendingCandidate) {
+    const row = container.createDiv({ cls: "novel-pending-row" });
+
+    const info = row.createDiv({ cls: "novel-pending-info" });
+    info.createEl("span", { text: candidate.name, cls: "novel-pending-name" });
+    if (candidate.role) {
+      info.createEl("span", { text: CHARACTER_SCENE_ROLE_LABELS[candidate.role], cls: "novel-todo-source-compact" });
+    }
+    const sceneFile = candidate.sourceScene ? this.app.vault.getAbstractFileByPath(candidate.sourceScene) : null;
+    if (sceneFile instanceof TFile) {
+      const link = info.createEl("a", { text: `in ${this.titleOf(sceneFile)}`, cls: "novel-structure-info-link", href: "#" });
+      link.onclick = (evt) => {
+        evt.preventDefault();
+        this.close();
+        this.app.workspace.getLeaf(false).openFile(sceneFile);
+      };
+    }
+    if (candidate.note) {
+      info.createEl("span", { text: candidate.note, cls: "novel-board-readonly novel-pending-note" });
+    }
+
+    const actions = row.createDiv({ cls: "novel-pending-actions" });
+
+    const assignInput = actions.createEl("input", {
+      cls: "novel-board-field-input",
+      attr: { placeholder: "Assign to existing…" },
+    });
+    assignInput.onclick = (evt) => evt.stopPropagation();
+    new NoteLinkSuggest(
+      this.app,
+      assignInput,
+      () => this.app.vault.getMarkdownFiles(),
+      async (target) => {
+        await resolvePendingCandidate(this.app, candidate, target);
+        this.render();
+      },
+      characterCandidateRank(this.app, this.plugin.settings)
+    );
+
+    const newBtn = actions.createEl("button", { text: "Create as new", cls: "novel-structure-inline-btn" });
+    newBtn.onclick = async () => {
+      await resolvePendingCandidate(this.app, candidate, candidate.file);
+      this.render();
+    };
+
+    const discardBtn = actions.createEl("span", { cls: "novel-todo-remove-btn" });
+    setIcon(discardBtn, "x");
+    discardBtn.setAttr("aria-label", "Discard");
+    discardBtn.onclick = async () => {
+      await discardPendingCandidate(this.app, candidate);
+      this.render();
+    };
   }
 
   private titleOf(file: TFile): string {

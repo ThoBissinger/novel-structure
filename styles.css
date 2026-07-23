@@ -621,6 +621,25 @@ textarea.novel-board-field-input {
 .novel-todo-section > h3 {
   margin: 0 0 8px 0;
 }
+/* Same amber "needs a human decision" language as the Quick badge and the
+   pending-candidate rows elsewhere in the plugin. Always rendered (see
+   TodoHubModal.renderQuickTodosSection) — an empty-state message instead of
+   disappearing outright, so the layout below it doesn't jump around
+   depending on whether there's anything to review right now. */
+.novel-todo-quick-section {
+  padding: 12px 14px;
+  margin: 14px 0 16px 0;
+  border: 1px solid var(--text-warning, #e0a800);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+.novel-todo-quick-section > h3 {
+  color: var(--text-warning, #e0a800);
+  margin: 0 0 10px 0;
+}
+.novel-todo-quick-section .novel-todo-list {
+  gap: 8px;
+}
 .novel-todo-quickadd-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -1321,6 +1340,54 @@ textarea.novel-board-field-input {
   margin: 6px 0;
   border-top: 1px solid var(--interactive-accent, #7c3aed);
   opacity: 0.4;
+}
+
+/* Pending candidates (CharacterOverviewModal/LocationOverviewModal) — names
+   an MCP-driven assistant spotted but couldn't safely resolve on its own.
+   Amber-tinted like the "Quick" todo badge, same "needs a human decision"
+   language across the plugin. */
+.novel-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.novel-pending-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--text-warning, #e0a800);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+.novel-pending-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.novel-pending-name {
+  font-weight: 600;
+}
+.novel-pending-note {
+  font-style: italic;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.novel-pending-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.novel-pending-actions input {
+  width: 160px;
 }
 
 .novel-todo-remove-btn,
@@ -2066,6 +2133,18 @@ svg.has-hover .novel-narrative-line:not(.is-hovered) {
 }
 .novel-session-start-btn {
   width: 100%;
+}
+
+/* A pointer to TodoHubModal's "Quick todos to flesh out" section, not a
+   gate — same amber "needs a human decision" language as the Quick badge/
+   pending-candidate rows elsewhere in the plugin. */
+.novel-session-quick-notice {
+  font-size: 0.82em;
+  color: var(--text-warning, #e0a800);
+  margin: 0 0 8px 0;
+}
+.novel-session-quick-notice a {
+  text-decoration: underline;
 }
 
 .novel-session-countdown {

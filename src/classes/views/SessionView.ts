@@ -12,9 +12,9 @@ import {
   startSession,
 } from "../../utils/session";
 import { collectTodos, isTodoRelevantFile, setTodoStatus } from "../../utils/todos";
-import { QuickTodoReviewModal } from "../modals/QuickTodoReviewModal";
 import { SessionPlanModal } from "../modals/SessionPlanModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
+import { TodoHubModal } from "../modals/TodoHubModal";
 import { renderSubtaskExpandToggle } from "../modals/todoRowView";
 
 function formatMinSec(ms: number): string {
@@ -85,12 +85,32 @@ export class SessionView extends ItemView {
     const sessionTodos = session.todoIds
       .map((id) => allTodos.find((t) => t.id === id))
       .filter((t): t is TodoItem => !!t);
+    const pendingQuickCount = allTodos.filter((t) => t.needsReview && t.status !== "done").length;
 
+    this.renderQuickTodoNotice(container, pendingQuickCount);
     if (isInPlanningPhase(session)) {
       this.renderPlanningPhase(container, sessionTodos);
     } else {
       this.renderWorkingPhase(container, sessionTodos);
     }
+  }
+
+  /** A quiet heads-up, not a gate — quick todos (QuickTodoModal, text-only
+   * capture flagged `needsReview`) used to force a review step before
+   * session planning could even start; now they're just editable any time
+   * in the Todo hub's Manage tab, so this only ever points you there
+   * instead of blocking anything. */
+  private renderQuickTodoNotice(container: HTMLElement, pendingCount: number) {
+    if (pendingCount === 0) return;
+    const notice = container.createDiv({ cls: "novel-session-quick-notice" });
+    notice.createSpan({
+      text: `${pendingCount} quick todo${pendingCount === 1 ? "" : "s"} still need${pendingCount === 1 ? "s" : ""} a priority/deadline pass — `,
+    });
+    const link = notice.createEl("a", { text: "open in Todo hub", href: "#" });
+    link.onclick = (evt) => {
+      evt.preventDefault();
+      new TodoHubModal(this.app, this.plugin, "manage").open();
+    };
   }
 
   private renderStartForm(container: HTMLElement) {
@@ -121,37 +141,15 @@ export class SessionView extends ItemView {
     container.createEl("p", { text: `${formatMinSec(planningRemainingMs(session))} left to plan`, cls: "novel-session-countdown" });
 
     const planBtn = container.createEl("button", { text: "Plan session", cls: "mod-cta novel-session-plan-btn" });
-    planBtn.onclick = () =>
-      this.withQuickTodoReview(
-        () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open(),
-        "Continue to session planning →"
-      );
+    planBtn.onclick = () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open();
 
     const skipBtn = container.createEl("button", { text: "Start working now →", cls: "novel-structure-inline-btn" });
-    skipBtn.onclick = () =>
-      this.withQuickTodoReview(async () => {
-        await skipPlanningPhase(this.plugin);
-        await this.render();
-      }, "Start working now →");
+    skipBtn.onclick = async () => {
+      await skipPlanningPhase(this.plugin);
+      await this.render();
+    };
 
     this.renderTodoList(container, sessionTodos);
-  }
-
-  /** Gate in front of both "Plan session" and "Start working now →": if
-   * there are quick todos still flagged `needsReview` (added on the go via
-   * QuickTodoModal, text-only), a review step goes first — this is meant to
-   * catch you right when you actually sit down to work, not nag at any
-   * other time, so it has to sit in front of *every* way a session's
-   * planning phase can end, not just the "Plan session" path (that path
-   * alone used to let "Start working now →" skip the review entirely).
-   * Runs `after` directly if there's nothing to review. */
-  private async withQuickTodoReview(after: () => void | Promise<void>, continueLabel?: string) {
-    const pending = (await collectTodos(this.plugin)).filter((t) => t.needsReview && t.status !== "done");
-    if (pending.length > 0) {
-      new QuickTodoReviewModal(this.app, this.plugin, pending, () => void after(), continueLabel).open();
-    } else {
-      await after();
-    }
   }
 
   private renderWorkingPhase(container: HTMLElement, sessionTodos: TodoItem[]) {

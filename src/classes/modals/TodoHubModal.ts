@@ -10,6 +10,7 @@ import {
   ensurePrivateTodoFile,
   isPrivateTodoArchived,
   removeTodo,
+  setTodoNeedsReview,
   setTodoStatus,
   sortTodosForDisplay,
   thisWeekStart,
@@ -21,6 +22,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { DailyPlannerModal } from "./DailyPlannerModal";
 import { renderTodoRow } from "./todoRowView";
 import { TodoAddModal, TodoTarget } from "./TodoAddModal";
+import { TodoEditModal } from "./TodoEditModal";
 
 export type TodoHubTab = "plan" | "manage";
 
@@ -304,6 +306,8 @@ export class TodoHubModal extends Modal {
       new TodoAddModal(this.app, this.plugin, [{ file: active, label }], 0, () => this.render()).open();
     });
 
+    this.renderQuickTodosSection(container, openTodos.filter((t) => t.needsReview));
+
     container.createEl("div", { cls: "novel-todo-divider" });
 
     const columns = container.createEl("div", { cls: "novel-todo-columns" });
@@ -338,6 +342,61 @@ export class TodoHubModal extends Modal {
       sceneColumn,
       openTodos.filter((t) => t.source === "scene")
     );
+  }
+
+  /** Quick todos (QuickTodoModal — text-only capture, flagged `needsReview`)
+   * that still need a proper priority/deadline pass, front and center on
+   * this tab — the one place in the plugin meant for exactly this, so a
+   * work session's "you have N quick todos" notice (SessionView) can just
+   * link here instead of gating session planning behind a review step.
+   * "Edit" opens the full dialog (its Save already clears the flag),
+   * "Accept" clears it without other changes, "Discard" removes it outright
+   * — same three actions this section replaced from the old
+   * QuickTodoReviewModal, just reachable any time instead of only at
+   * session start. Always rendered, even with nothing to review — an
+   * empty-state line instead of the whole section disappearing, so the rest
+   * of the tab doesn't jump around depending on whether there's anything
+   * pending right now. */
+  private renderQuickTodosSection(container: HTMLElement, quickTodos: TodoItem[]) {
+    const section = container.createEl("div", { cls: "novel-todo-section novel-todo-quick-section" });
+    section.createEl("h3", { text: `Quick todos to flesh out (${quickTodos.length})` });
+    if (quickTodos.length === 0) {
+      section.createEl("p", { text: "Nothing to review right now.", cls: "novel-todo-empty" });
+      return;
+    }
+    const list = section.createEl("div", { cls: "novel-todo-list" });
+    quickTodos.forEach((todo) => this.renderQuickTodoRow(list, todo));
+  }
+
+  private renderQuickTodoRow(container: HTMLElement, todo: TodoItem) {
+    const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
+
+    const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
+    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+
+    row.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
+
+    const editBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+    setIcon(editBtn, "pencil");
+    editBtn.setAttr("aria-label", "Edit (also clears the review flag)");
+    editBtn.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.render()).open();
+
+    const acceptBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+    setIcon(acceptBtn, "check");
+    acceptBtn.setAttr("aria-label", "Accept as-is (clears the review flag, no other changes)");
+    acceptBtn.onclick = async () => {
+      await setTodoNeedsReview(this.app, todo, false);
+      this.render();
+    };
+
+    const discardBtn = row.createEl("span", { cls: "novel-todo-remove-btn" });
+    setIcon(discardBtn, "x");
+    discardBtn.setAttr("aria-label", "Discard");
+    discardBtn.onclick = async () => {
+      const file = this.app.vault.getAbstractFileByPath(todo.filePath);
+      if (file instanceof TFile) await removeTodo(this.app, file, todo.id);
+      this.render();
+    };
   }
 
   /** Roman-todo column: a lot more of these accumulate over a whole book

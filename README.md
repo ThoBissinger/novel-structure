@@ -528,7 +528,7 @@ conventions exist to prevent).
   user-typed), Streamable HTTP transport at `http://127.0.0.1:<port>/mcp`.
 - Every tool is a thin wrapper around the same `utils/*.ts` functions the UI
   itself calls — `create_thread`/`add_thread_development` go through
-  `threads.ts`, `add_todo`/`set_todo_done` through `todos.ts`, etc. — so an
+  `threads.ts`, `add_todo`/`set_todo_status` through `todos.ts`, etc. — so an
   AI-driven edit round-trips through `noteBody.ts`'s "## Text"/"## Notes"/
   "## Todos"/"## Threads" convention exactly like a manual one.
 - **Read tools**: `list_scenes`, `get_scene` (frontmatter + prose + resolved
@@ -537,11 +537,17 @@ conventions exist to prevent).
   (the whole book as structured JSON, one row per structure note).
 - **Write tools**: `create_thread`, `update_thread`,
   `add_thread_development`, `remove_thread_from_scene`, `add_todo`,
-  `set_todo_done`, `set_todo_priority`, `remove_todo`,
-  `link_character_to_scene`, `link_location_to_scene`.
-- Not included yet: creating character/location notes (there's no dedicated
-  note type for either — see "Characters"/"Locations" above) or creating new
-  structure nodes (scenes/chapters) via MCP.
+  `set_todo_status`, `set_todo_priority`, `set_todo_deadline`, `remove_todo`,
+  `link_character_to_scene`, `link_location_to_scene`,
+  `propose_character_candidate`, `propose_location_candidate` (drops a stub
+  into a `Pending` folder when an agent spots a name it can't safely
+  resolve on its own — e.g. "the father" turning out to be an existing
+  character under a different note — for a human to resolve later in the
+  Characters/Locations overview).
+- Not included yet: creating character/location notes directly (only
+  proposing a pending candidate, or linking an existing note, are exposed),
+  writing scene prose, or creating new structure nodes (scenes/chapters) via
+  MCP — all deliberate.
 
 Enable it under Settings → MCP server, then register it with your client,
 e.g. for Claude Code:
@@ -553,6 +559,10 @@ claude mcp add --transport http novel-structure http://127.0.0.1:<port>/mcp \
 
 The token is stored in this vault's `data.json` in plain text, like every
 other Obsidian plugin setting — treat it like a password.
+
+**Full step-by-step setup (Claude Code, Claude Desktop, and any other
+MCP-capable agent), plus a tool reference and troubleshooting: see
+[MCP.md](MCP.md).**
 
 ## Settings
 

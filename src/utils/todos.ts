@@ -466,9 +466,9 @@ export async function addTodo(
 
 /** The fast-capture path (QuickTodoModal, meant to be usable one-handed on
  * mobile): text only, everything else defaulted and flagged `needsReview`
- * so it surfaces in QuickTodoReviewModal at the next session start instead
- * of quietly blending in with deliberately-filled-in todos. Always private
- * — picking a scene/chapter is exactly the friction this path exists to
+ * so it surfaces in TodoHubModal's "Quick todos to flesh out" section
+ * instead of quietly blending in with deliberately-filled-in todos. Always
+ * private — picking a scene/chapter is exactly the friction this path exists to
  * skip; moving it into a scene later, if it turns out to belong to one,
  * still goes through the normal edit flow. */
 export async function addQuickTodo(app: App, plugin: NovelStructurePlugin, text: string): Promise<void> {

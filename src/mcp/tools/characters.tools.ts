@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CharacterSceneRole, collectKnownCharacters, linkCharacterToScene } from "../../utils/characters";
 import { isStructureFile } from "../../utils/files";
+import { createPendingCandidate } from "../../utils/pendingCandidates";
 import type { ToolContext } from "../toolContext";
 import { errorResult, jsonResult } from "../toolResult";
 import { resolveFile } from "./shared";
@@ -51,6 +52,36 @@ export function registerCharacterTools(server: McpServer, ctx: ToolContext): voi
 
       await linkCharacterToScene(app, sceneFile, characterFile, role);
       return jsonResult({ scenePath: sceneFile.path, characterPath: characterFile.path, role });
+    }
+  );
+
+  server.registerTool(
+    "propose_character_candidate",
+    {
+      title: "Propose character candidate",
+      description:
+        "Use this instead of link_character_to_scene when you can't tell if a name is a character already known to " +
+        "the book under a different note (e.g. \"the father\" turning out to be an existing character like Jean " +
+        "Valjean) — it's genuinely ambiguous from inside one scene, and guessing wrong would misattribute the link. " +
+        "Creates a stub note in a Pending folder recording the name and where it was seen; a human resolves it later " +
+        "in the plugin's Characters overview, either to an existing note or by promoting the stub into a new one. " +
+        "Check list_characters first — if the name is obviously already a known character, use " +
+        "link_character_to_scene directly instead of proposing.",
+      inputSchema: {
+        name: z.string().describe("The name as it appears in the scene."),
+        scenePath: z.string().describe("Vault-relative path of the scene it was spotted in, e.g. from list_scenes."),
+        role: z.enum(CHARACTER_SCENE_ROLES).describe("How central they seemed in this scene."),
+        note: z.string().optional().describe("Optional context, e.g. a quoted line or why this looked like a character."),
+      },
+    },
+    async ({ name, scenePath, role, note }) => {
+      const { app, settings } = ctx.plugin;
+      const sceneFile = resolveFile(ctx, scenePath);
+      if (!sceneFile || !isStructureFile(app, sceneFile, settings)) {
+        return errorResult(`No structure note found at "${scenePath}".`);
+      }
+      const file = await createPendingCandidate(app, settings, "character", name, sceneFile.path, role, note ?? "");
+      return jsonResult({ path: file.path, name, scenePath: sceneFile.path, role });
     }
   );
 }

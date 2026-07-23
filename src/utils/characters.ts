@@ -71,6 +71,11 @@ export async function setCharacterRole(plugin: NovelStructurePlugin, file: TFile
 }
 
 export type CharacterSceneRole = "focus" | "side" | "mentioned";
+export const CHARACTER_SCENE_ROLE_LABELS: Record<CharacterSceneRole, string> = {
+  focus: "Focus",
+  side: "Side",
+  mentioned: "Mentioned",
+};
 
 /** Links `characterFile` into `sceneFile`'s appropriate frontmatter field:
  * "focus" replaces focus_character outright (it's a single value, not a

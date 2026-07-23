@@ -7,11 +7,11 @@ import { addQuickTodo } from "../../utils/todos";
 // nothing but a text field, on purpose: no target picker, no priority, no
 // deadline. Meant to be usable one-handed on mobile, mid-something-else.
 // Always lands in the private todo store, flagged `needsReview` (see
-// addQuickTodo), so it surfaces in QuickTodoReviewModal to get a proper
-// priority/deadline pass once you're actually sitting down to work. The
-// field stays focused and clears after each submit instead of closing, so
-// jotting down several in a row doesn't mean reopening this each time —
-// Escape/clicking away closes it whenever you're done.
+// addQuickTodo), so it surfaces in TodoHubModal's "Quick todos to flesh
+// out" section to get a proper priority/deadline pass whenever you get to
+// it. The field stays focused and clears after each submit instead of
+// closing, so jotting down several in a row doesn't mean reopening this
+// each time — Escape/clicking away closes it whenever you're done.
 // ---------------------------------------------------------------------------
 
 export class QuickTodoModal extends Modal {
