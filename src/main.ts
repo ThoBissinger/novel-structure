@@ -425,21 +425,51 @@ export default class NovelStructurePlugin extends Plugin {
       })
     );
 
-    this.addRibbonIcon("layout-list", "Open novel structure", () => this.activateStructureView());
-    this.addRibbonIcon("list-checks", "Open todo hub", () => new TodoHubModal(this.app, this, "plan").open());
+    // Grouped into two context menus instead of one ribbon icon per feature
+    // (used to be 11) — Obsidian's ribbon has no native grouping/submenu
+    // concept, so this is a Menu popup per icon instead. Quick todo keeps
+    // its own icon regardless: it's meant for fast one-tap capture, and a
+    // submenu would cost it exactly the speed it exists for. Every action
+    // here still has its own command too, for the command palette/hotkeys.
+    this.addRibbonIcon("list-checks", "Todos", (evt) => {
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item.setTitle("Todo hub").setIcon("list-checks").onClick(() => new TodoHubModal(this.app, this, "plan").open())
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Today's planner")
+          .setIcon("calendar-check")
+          .onClick(() =>
+            new DailyPlannerModal(this.app, this, todayDate(), () => {
+              new TodoHubModal(this.app, this, "plan").open();
+            }).open()
+          )
+      );
+      menu.addItem((item) =>
+        item.setTitle("Weekly planner").setIcon("calendar-range").onClick(() => this.activateWeeklyView())
+      );
+      menu.addItem((item) => item.setTitle("Work session").setIcon("timer").onClick(() => this.activateSessionView()));
+      menu.addItem((item) => item.setTitle("Roadmap").setIcon("calendar-days").onClick(() => this.activateRoadmapView()));
+      menu.showAtMouseEvent(evt);
+    });
     this.addRibbonIcon("zap", "Quick todo", () => new QuickTodoModal(this.app, this).open());
-    this.addRibbonIcon("calendar-check", "Open today's planner", () =>
-      new DailyPlannerModal(this.app, this, todayDate(), () => {
-        new TodoHubModal(this.app, this, "plan").open();
-      }).open()
-    );
-    this.addRibbonIcon("layout-grid", "Open novel board", () => this.activateBoardView());
-    this.addRibbonIcon("calendar-days", "Open roadmap", () => this.activateRoadmapView());
-    this.addRibbonIcon("calendar-range", "Open weekly planner", () => this.activateWeeklyView());
-    this.addRibbonIcon("timer", "Open work session", () => this.activateSessionView());
-    this.addRibbonIcon("users", "Open character overview", () => new CharacterOverviewModal(this.app, this).open());
-    this.addRibbonIcon("map-pin", "Open location overview", () => new LocationOverviewModal(this.app, this).open());
-    this.addRibbonIcon("activity", "Open narrative chart", () => this.activateNarrativeChartView());
+
+    this.addRibbonIcon("layout-list", "Novel", (evt) => {
+      const menu = new Menu();
+      menu.addItem((item) => item.setTitle("Structure").setIcon("layout-list").onClick(() => this.activateStructureView()));
+      menu.addItem((item) => item.setTitle("Board").setIcon("layout-grid").onClick(() => this.activateBoardView()));
+      menu.addItem((item) =>
+        item.setTitle("Characters").setIcon("users").onClick(() => new CharacterOverviewModal(this.app, this).open())
+      );
+      menu.addItem((item) =>
+        item.setTitle("Locations").setIcon("map-pin").onClick(() => new LocationOverviewModal(this.app, this).open())
+      );
+      menu.addItem((item) =>
+        item.setTitle("Narrative chart").setIcon("activity").onClick(() => this.activateNarrativeChartView())
+      );
+      menu.showAtMouseEvent(evt);
+    });
 
     this.addSettingTab(new NovelStructureSettingTab(this.app, this));
 
