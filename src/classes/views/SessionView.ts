@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, debounce, setIcon } from "obsidian";
+import { ItemView, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_SESSION } from "../../types";
 import {
@@ -11,7 +11,7 @@ import {
   skipPlanningPhase,
   startSession,
 } from "../../utils/session";
-import { collectTodos, setTodoStatus } from "../../utils/todos";
+import { collectTodos, isTodoRelevantFile, setTodoStatus } from "../../utils/todos";
 import { SessionPlanModal } from "../modals/SessionPlanModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
 import { renderSubtaskExpandToggle } from "../modals/todoRowView";
@@ -60,8 +60,10 @@ export class SessionView extends ItemView {
     this.registerInterval(window.setInterval(() => this.render(), 15000));
     const debouncedRender = debounce(() => this.render(), 400, true);
     this.registerEvent(
-      this.app.vault.on("modify", () => {
-        if (this.app.workspace.layoutReady) debouncedRender();
+      this.app.vault.on("modify", (file) => {
+        if (this.app.workspace.layoutReady && file instanceof TFile && isTodoRelevantFile(this.app, file, this.plugin)) {
+          debouncedRender();
+        }
       })
     );
     await this.render();

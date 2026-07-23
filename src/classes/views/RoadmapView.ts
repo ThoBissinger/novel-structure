@@ -1,7 +1,7 @@
-import { ItemView, WorkspaceLeaf, debounce, setIcon } from "obsidian";
+import { ItemView, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, PRIORITY_ORDER, TodoItem, VIEW_TYPE_ROADMAP } from "../../types";
-import { buildTodoTargets, collectTodos, deadlineUrgency, todayDate } from "../../utils/todos";
+import { buildTodoTargets, collectTodos, deadlineUrgency, isTodoRelevantFile, todayDate } from "../../utils/todos";
 import { DayTodosModal } from "../modals/DayTodosModal";
 import { TodoAddModal } from "../modals/TodoAddModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
@@ -55,11 +55,16 @@ export class RoadmapView extends ItemView {
   async onOpen() {
     // Same debounced-refresh pattern as NovelBoardView — "modify" (not just
     // metadataCache "changed") because private todos live in a plain JSON
-    // file that never gets a metadata cache entry at all.
+    // file that never gets a metadata cache entry at all. Filtered to files
+    // that could actually change collectTodos()'s result — otherwise this
+    // view redoes a full vault-wide todo rescan on every single vault edit,
+    // structure-related or not.
     const debouncedRender = debounce(() => this.render(), 400, true);
     this.registerEvent(
-      this.app.vault.on("modify", () => {
-        if (this.app.workspace.layoutReady) debouncedRender();
+      this.app.vault.on("modify", (file) => {
+        if (this.app.workspace.layoutReady && file instanceof TFile && isTodoRelevantFile(this.app, file, this.plugin)) {
+          debouncedRender();
+        }
       })
     );
     this.registerEvent(

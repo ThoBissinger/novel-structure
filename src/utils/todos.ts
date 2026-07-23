@@ -20,6 +20,17 @@ export function privateTodoPath(plugin: NovelStructurePlugin): string {
   return `${plugin.settings.structureFolder}/${plugin.settings.privateTodoFile}`;
 }
 
+/** Whether a changed file could actually affect collectTodos()'s result —
+ * a structure note or the private todo store, nothing else. Views that
+ * re-scan all todos on every vault "modify" (Roadmap/Session/Weekly) use
+ * this to skip that rescan for edits to unrelated notes, instead of paying
+ * for a full vault.getMarkdownFiles() + per-file read on literally any
+ * file changing anywhere in the vault. */
+export function isTodoRelevantFile(app: App, file: TFile, plugin: NovelStructurePlugin): boolean {
+  if (file.path === privateTodoPath(plugin)) return true;
+  return file.extension === "md" && isStructureFile(app, file, plugin.settings);
+}
+
 export async function ensurePrivateTodoFile(plugin: NovelStructurePlugin): Promise<TFile> {
   const path = privateTodoPath(plugin);
   const existing = plugin.app.vault.getAbstractFileByPath(path);

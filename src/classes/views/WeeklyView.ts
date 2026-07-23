@@ -3,6 +3,7 @@ import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_WEEKLY } from "../../types";
 import {
   computeGoalProgress,
+  dailyNotePath,
   ensureDailyNote,
   ensureWeeklyNote,
   formatGoalProgressLabel,
@@ -12,7 +13,7 @@ import {
   regenerateThemeBody,
   writeNotesTrailer,
 } from "../../utils/checkInNotes";
-import { addDays, collectTodos, sortTodosForDisplay, thisWeekStart, todayDate } from "../../utils/todos";
+import { addDays, collectTodos, isTodoRelevantFile, sortTodosForDisplay, thisWeekStart, todayDate } from "../../utils/todos";
 import { addTextAreaField, addTextField } from "../FieldBuilders";
 import { DailyPlannerModal } from "../modals/DailyPlannerModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
@@ -67,8 +68,16 @@ export class WeeklyView extends ItemView {
   async onOpen() {
     const debouncedRefresh = debounce(() => this.refreshTodosSection(), 400, true);
     this.registerEvent(
-      this.app.vault.on("modify", () => {
-        if (this.app.workspace.layoutReady) debouncedRefresh();
+      this.app.vault.on("modify", (file) => {
+        if (!this.app.workspace.layoutReady || !(file instanceof TFile)) return;
+        // Todo-relevant files affect the todos list; this week's own daily
+        // notes affect the habit grid (e.g. a habit toggled from the daily
+        // planner, or a raw edit to a day's frontmatter) — anything else in
+        // the vault can't change what this view shows, so skip the rescan.
+        const isThisWeeksDailyNote = Array.from({ length: 7 }, (_, i) => addDays(this.weekStart, i)).some(
+          (date) => file.path === dailyNotePath(this.plugin, date)
+        );
+        if (isTodoRelevantFile(this.app, file, this.plugin) || isThisWeeksDailyNote) debouncedRefresh();
       })
     );
     await this.render();
