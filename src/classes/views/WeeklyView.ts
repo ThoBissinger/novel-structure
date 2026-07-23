@@ -1,6 +1,6 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_WEEKLY } from "../../types";
+import { TodoItem, VIEW_TYPE_WEEKLY } from "../../types";
 import {
   computeGoalProgress,
   dailyNotePath,
@@ -24,8 +24,7 @@ import {
 } from "../../utils/todos";
 import { addTextAreaField, addTextField } from "../FieldBuilders";
 import { DailyPlannerModal } from "../modals/DailyPlannerModal";
-import { TodoEditModal } from "../modals/TodoEditModal";
-import { renderSubtaskExpandToggle } from "../modals/todoRowView";
+import { renderSubtaskExpandToggle, renderTodoPickerRow } from "../modals/todoRowView";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -357,39 +356,16 @@ export class WeeklyView extends ItemView {
   }
 
   private renderTodoRow(container: HTMLElement, todo: TodoItem) {
-    const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
-
-    const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-    dot.setAttr("aria-label", `Priority: ${todo.priority}`);
-
-    const main = row.createEl("div", { cls: "novel-todo-row-main" });
-    main.setAttr("aria-label", "Edit todo…");
-    main.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refreshTodosSection()).open();
-
-    main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
-    if (todo.source !== "private") {
-      main.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
-    }
-    if (todo.deadline) {
-      main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
-    }
-    if (todo.subtasks.length > 0) {
-      const done = todo.subtasks.filter((s) => s.done).length;
-      main.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
-    }
-
-    if (todo.source !== "private") {
-      const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
-      setIcon(openBtn, "external-link");
-      openBtn.setAttr("aria-label", "Jump to this todo in its file");
-      openBtn.onclick = async (evt) => {
-        evt.stopPropagation();
-        const file = this.app.vault.getAbstractFileByPath(todo.filePath);
-        if (!(file instanceof TFile)) return;
-        await this.app.workspace.openLinkText(`${file.basename}#^${todo.id}`, file.path, false);
-      };
-    }
+    const row = renderTodoPickerRow(
+      this.app,
+      this.plugin,
+      container,
+      todo,
+      undefined,
+      this.expandedTodoIds,
+      () => this.refreshTodosSection(),
+      () => {}
+    );
 
     const toggle = row.createEl("button", {
       text: this.selection[todo.id] ? "This week" : "—",

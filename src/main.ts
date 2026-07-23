@@ -341,7 +341,7 @@ export default class NovelStructurePlugin extends Plugin {
 
     this.addCommand({
       id: "novel-structure-open-todo-view",
-      name: "Open todo planning",
+      name: "Open todo hub",
       callback: () => new TodoHubModal(this.app, this, "plan").open(),
     });
 
@@ -426,10 +426,12 @@ export default class NovelStructurePlugin extends Plugin {
     );
 
     this.addRibbonIcon("layout-list", "Open novel structure", () => this.activateStructureView());
-    this.addRibbonIcon("list-checks", "Open todo planning", () => new TodoHubModal(this.app, this, "plan").open());
+    this.addRibbonIcon("list-checks", "Open todo hub", () => new TodoHubModal(this.app, this, "plan").open());
     this.addRibbonIcon("zap", "Quick todo", () => new QuickTodoModal(this.app, this).open());
     this.addRibbonIcon("calendar-check", "Open today's planner", () =>
-      new DailyPlannerModal(this.app, this, todayDate(), () => {}).open()
+      new DailyPlannerModal(this.app, this, todayDate(), () => {
+        new TodoHubModal(this.app, this, "plan").open();
+      }).open()
     );
     this.addRibbonIcon("layout-grid", "Open novel board", () => this.activateBoardView());
     this.addRibbonIcon("calendar-days", "Open roadmap", () => this.activateRoadmapView());
@@ -530,16 +532,7 @@ export default class NovelStructurePlugin extends Plugin {
     if (values.length === 0) return;
     const row = container.createDiv({ cls: "novel-structure-info-row" });
     row.createSpan({ text: label, cls: "novel-structure-info-label" });
-    values.forEach((link) => {
-      const basename = extractLinkBasename(link);
-      if (!basename) return;
-      const a = row.createEl("a", { text: basename, cls: "novel-structure-info-link", href: "#" });
-      a.onclick = (evt) => {
-        evt.preventDefault();
-        const target = this.app.metadataCache.getFirstLinkpathDest(basename, file.path);
-        if (target) this.app.workspace.getLeaf(false).openFile(target);
-      };
-    });
+    values.forEach((link) => renderLinkifiedText(this.app, row, link, file.path));
   }
 
   /** Renders the note's structural links only — parent, previous, next,
@@ -609,12 +602,7 @@ export default class NovelStructurePlugin extends Plugin {
       const basename = extractLinkBasename(link);
       if (!basename) return;
       const row = group.createDiv({ cls: "novel-structure-info-thread-row" });
-      const a = row.createEl("a", { text: basename, cls: "novel-structure-info-link", href: "#" });
-      a.onclick = (evt) => {
-        evt.preventDefault();
-        const target = this.app.metadataCache.getFirstLinkpathDest(basename, file.path);
-        if (target) this.app.workspace.getLeaf(false).openFile(target);
-      };
+      renderLinkifiedText(this.app, row, link, file.path);
       const preview = row.createSpan({ cls: "novel-structure-info-thread-preview" });
       getThreadDevelopmentForScene(this.app, file, basename).then((text) => {
         if (text) renderLinkifiedText(this.app, preview, text, file.path);

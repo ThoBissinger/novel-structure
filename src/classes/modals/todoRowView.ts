@@ -57,6 +57,13 @@ export function renderTodoRow(
   const title = main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
   if (todo.status === "done") title.addClass("is-done");
 
+  if (todo.needsReview) {
+    main.createEl("span", {
+      text: "Quick",
+      cls: "novel-todo-quick-badge",
+      attr: { title: "Added via quick-add — still needs a priority/deadline pass" },
+    });
+  }
   if (opts.showSource ?? true) {
     main.createEl("span", {
       text: todo.source === "private" ? "Private" : todo.fileTitle,
@@ -139,6 +146,72 @@ export function renderTodoRow(
   }
 }
 
+/** Shared body of a todo *picker* row (DailyPlannerModal's Todos tab,
+ * SessionPlanModal) — priority dot, click-to-edit text with its badges, and
+ * the jump-to-file button. Returns `row` so the caller can append its own
+ * trailing pick control (Must/Maybe buttons, an estimate input + In-session
+ * toggle, …) followed by renderSubtaskExpandToggle — both stay the caller's
+ * job: the pick control differs enough per picker that folding it in here
+ * would just trade near-identical row functions for one over-parameterized
+ * one, and the chevron has to come *after* whatever the caller appends (see
+ * renderSubtaskExpandToggle's own doc comment on why it must be the row's
+ * last child). `suggestionLabel`, if given, renders as the same "notable"
+ * badge used for "This week"/"Today" picks — a suggestion, not a filter. */
+export function renderTodoPickerRow(
+  app: App,
+  plugin: NovelStructurePlugin,
+  container: HTMLElement,
+  todo: TodoItem,
+  suggestionLabel: string | undefined,
+  expandedTodoIds: Set<string>,
+  refresh: () => void | Promise<void>,
+  closeModal: () => void
+): HTMLElement {
+  const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
+
+  const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
+  dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+  dot.setAttr("aria-label", `Priority: ${todo.priority}`);
+
+  const main = row.createEl("div", { cls: "novel-todo-row-main" });
+  main.setAttr("aria-label", "Edit todo…");
+  main.onclick = () => new TodoEditModal(app, plugin, todo, () => refresh()).open();
+
+  main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
+  if (todo.needsReview) {
+    main.createEl("span", {
+      text: "Quick",
+      cls: "novel-todo-quick-badge",
+      attr: { title: "Added via quick-add — still needs a priority/deadline pass" },
+    });
+  }
+  if (suggestionLabel) {
+    main.createEl("span", { text: suggestionLabel, cls: "novel-todo-week-badge" });
+  }
+  if (todo.source !== "private") {
+    main.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
+  }
+  if (todo.deadline) {
+    main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
+  }
+  if (todo.subtasks.length > 0) {
+    const done = todo.subtasks.filter((s) => s.done).length;
+    main.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
+  }
+
+  if (todo.source !== "private") {
+    const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+    setIcon(openBtn, "external-link");
+    openBtn.setAttr("aria-label", "Jump to this todo in its file");
+    openBtn.onclick = (evt) => {
+      evt.stopPropagation();
+      void jumpToTodo(app, todo, closeModal);
+    };
+  }
+
+  return row;
+}
+
 /** Compact checklist for a todo's subtasks — checkbox + text, no inline
  * editing (that stays in TodoEditModal). Used by the row renderers that let
  * you work through a todo's subtasks one at a time (daily planning, session
@@ -169,7 +242,7 @@ export function renderSubtaskChecklist(
 
 /** Chevron that expands a todo's subtasks into a nested checklist below the
  * row — used by the compact row renderers that don't go through
- * renderTodoRow (DailySelectionModal, SessionPlanModal, SessionView,
+ * renderTodoRow (SessionPlanModal, SessionView, WeeklyView,
  * DailyPlannerModal). Always creates the chevron element, even when the todo
  * has no subtasks, and just leaves it empty/inert in that case — otherwise a
  * trailing element (the Must/Maybe toggle, `margin-left: auto`) ends up

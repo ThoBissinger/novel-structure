@@ -12,13 +12,27 @@ import {
   writeNotesTrailer,
 } from "../../utils/checkInNotes";
 import { generateTodoId } from "../../utils/noteBody";
-import { collectTodos, mondayOfWeek, sortTodosForDisplay, todayDate } from "../../utils/todos";
+import { collectTodos, mondayOfWeek, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
 import { addRatingField, addTextAreaField } from "../FieldBuilders";
-import { friendlyDateLabel, SELECTION_OPTIONS, SelectionValue } from "./DailySelectionModal";
-import { TodoEditModal } from "./TodoEditModal";
-import { renderSubtaskExpandToggle } from "./todoRowView";
+import { renderSubtaskExpandToggle, renderTodoPickerRow } from "./todoRowView";
 
 type PlannerTab = "checkin" | "schedule" | "todos" | "reflection";
+export type SelectionValue = "none" | "maybe" | "must";
+export const SELECTION_OPTIONS: [SelectionValue, string][] = [
+  ["none", "—"],
+  ["maybe", "Maybe"],
+  ["must", "Must"],
+];
+
+/** "today"/"tomorrow" when targetDate matches, otherwise the raw date —
+ * works whether this modal is opened for today, tomorrow (the evening
+ * ritual), or an arbitrary day (editing a future day's plan from
+ * Roadmap/DayTodosModal), since only the date passed in differs. */
+export function friendlyDateLabel(targetDate: string): string {
+  if (targetDate === todayDate()) return "today";
+  if (targetDate === tomorrowDate()) return "tomorrow";
+  return targetDate;
+}
 
 function formatTime(mins: number): string {
   return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
@@ -33,15 +47,16 @@ function nextDefaultStartMinutes(blocks: ScheduleBlock[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// The single entry point for "today"/"tomorrow" planning — folds what used
-// to be two disconnected modals (DailySelectionModal's must/maybe picker,
-// DailyCheckInModal's mood+freetext check-in) into one tabbed window backed
-// by a real markdown note (src/utils/checkInNotes.ts), plus an hourly
-// schedule and end-of-day reflection. Same fixed-height/no-resize tab shell
-// as TodoHubModal. DailySelectionModal itself is untouched and still used
-// for arbitrary-date editing (Roadmap/DayTodosModal) — this modal only
-// re-implements its Todos-tab logic with auto-save instead of a batch Save
-// button, to match the rest of this modal's auto-save feel.
+// The single entry point for daily planning — today, tomorrow (the evening
+// ritual), or an arbitrary day (Roadmap/DayTodosModal editing a future
+// day's plan, opened straight on the Todos tab) all go through this one
+// modal now. Folds together what used to be three separate places: a
+// must/maybe picker (the old DailySelectionModal — deleted, its Todos-tab
+// recommendation text/count-hint live here now, auto-saving per click
+// instead of behind a batch Save button), a mood+freetext check-in (the old
+// DailyCheckInModal), and this modal's own schedule/reflection additions —
+// backed by a real markdown note (src/utils/checkInNotes.ts). Same fixed-
+// height/no-resize tab shell as TodoHubModal.
 // ---------------------------------------------------------------------------
 
 export class DailyPlannerModal extends Modal {
@@ -56,6 +71,7 @@ export class DailyPlannerModal extends Modal {
   selection: Record<string, SelectionValue> = {};
   weeklyTodoIds: Set<string> = new Set();
   expandedTodoIds: Set<string> = new Set();
+  hintEl?: HTMLElement;
 
   constructor(
     app: App,
@@ -377,6 +393,15 @@ export class DailyPlannerModal extends Modal {
   // -- Todos tab -----------------------------------------------------------
 
   private renderTodosTab(container: HTMLElement) {
+    const introText = container.createEl("p", {
+      text:
+        "Recommendation (inspired by \"The Perfect Day Formula\"/getting-things-done style planning): " +
+        `pick at most 3 must-do todos and 3 maybe todos for ${friendlyDateLabel(this.targetDate)}. This is a suggestion, not a hard limit.`,
+    });
+    introText.style.opacity = "0.8";
+    this.hintEl = container.createEl("p", { cls: "novel-todo-selection-hint" });
+    this.updateSelectionHint();
+
     if (this.todos.length === 0) {
       container.createEl("p", { text: "No open todos found – you're all caught up! 🎉", cls: "novel-todo-empty" });
       return;
@@ -407,44 +432,30 @@ export class DailyPlannerModal extends Modal {
     await this.plugin.saveSettings();
   }
 
+  /** Live must/maybe count against the "at most 3 each" recommendation
+   * above the list — a nudge, not a hard limit, so it just turns a warning
+   * color past 3 rather than blocking anything. */
+  private updateSelectionHint() {
+    if (!this.hintEl) return;
+    const values = Object.values(this.selection);
+    const must = values.filter((v) => v === "must").length;
+    const maybe = values.filter((v) => v === "maybe").length;
+    this.hintEl.setText(`Currently selected: ${must} must (rec. ≤3), ${maybe} maybe (rec. ≤3)`);
+    this.hintEl.style.color = must > 3 || maybe > 3 ? "var(--text-warning, #e0a800)" : "";
+  }
+
   private renderTodoSelectionRow(container: HTMLElement, todo: TodoItem) {
-    const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
-
-    const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-    dot.setAttr("aria-label", `Priority: ${todo.priority}`);
-
-    const main = row.createEl("div", { cls: "novel-todo-row-main" });
-    main.setAttr("aria-label", "Edit todo…");
-    main.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.renderShell()).open();
-
-    main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
-    if (this.weeklyTodoIds.has(todo.id)) {
-      main.createEl("span", { text: "This week", cls: "novel-todo-week-badge" });
-    }
-    if (todo.source !== "private") {
-      main.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
-    }
-    if (todo.deadline) {
-      main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
-    }
-    if (todo.subtasks.length > 0) {
-      const done = todo.subtasks.filter((s) => s.done).length;
-      main.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
-    }
-
-    if (todo.source !== "private") {
-      const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
-      setIcon(openBtn, "external-link");
-      openBtn.setAttr("aria-label", "Jump to this todo in its file");
-      openBtn.onclick = async (evt) => {
-        evt.stopPropagation();
-        const file = this.app.vault.getAbstractFileByPath(todo.filePath);
-        if (!(file instanceof TFile)) return;
-        this.close();
-        await this.app.workspace.openLinkText(`${file.basename}#^${todo.id}`, file.path, false);
-      };
-    }
+    const suggestionLabel = this.weeklyTodoIds.has(todo.id) ? "This week" : undefined;
+    const row = renderTodoPickerRow(
+      this.app,
+      this.plugin,
+      container,
+      todo,
+      suggestionLabel,
+      this.expandedTodoIds,
+      () => this.renderShell(),
+      () => this.close()
+    );
 
     const toggle = row.createDiv({ cls: "novel-structure-mode-group novel-todo-selection-toggle" });
     const buttons: HTMLElement[] = [];
@@ -460,6 +471,7 @@ export class DailyPlannerModal extends Modal {
         buttons.forEach((b) => b.removeClass("is-active"));
         btn.addClass("is-active");
         void this.saveSelection();
+        this.updateSelectionHint();
       };
       buttons.push(btn);
     });

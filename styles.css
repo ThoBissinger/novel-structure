@@ -1223,6 +1223,20 @@ textarea.novel-board-field-input {
   color: var(--text-on-accent, #ffffff);
   opacity: 0.85;
 }
+/* Flags a todo added via quick-add (QuickTodoModal) that hasn't been given
+   a real priority/deadline pass yet (see QuickTodoReviewModal) — a distinct
+   amber outline rather than reusing .novel-todo-week-badge's filled accent
+   pill, since a todo can carry both at once (quick-added *and* picked for
+   this week) and the two need to stay visually separable. */
+.novel-todo-quick-badge {
+  flex-shrink: 0;
+  font-size: 0.72em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid var(--text-warning, #e0a800);
+  color: var(--text-warning, #e0a800);
+}
 
 .novel-todo-recurrence-badge-compact {
   display: inline-flex;
@@ -1492,6 +1506,14 @@ textarea.novel-board-field-input {
 .novel-todo-loading {
   opacity: 0.6;
   font-style: italic;
+}
+
+/* Live must/maybe count under the "at most 3 each" recommendation in
+   DailyPlannerModal's Todos tab — color is set inline (warning past 3), so
+   this only needs to handle the neutral case. */
+.novel-todo-selection-hint {
+  font-size: 0.85em;
+  opacity: 0.75;
 }
 
 /* ---------------------------------------------------------------------- */

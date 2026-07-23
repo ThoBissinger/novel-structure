@@ -1,20 +1,19 @@
-import { App, Modal, TFile, setIcon } from "obsidian";
+import { App, Modal } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
+import { TodoItem } from "../../types";
 import { toggleSessionTodo } from "../../utils/session";
 import { buildTodoTargets, collectTodos, setTodoEstimatedMinutes, sortTodosForDisplay, todayDate } from "../../utils/todos";
 import { TodoAddModal } from "./TodoAddModal";
-import { TodoEditModal } from "./TodoEditModal";
-import { renderSubtaskExpandToggle } from "./todoRowView";
+import { renderSubtaskExpandToggle, renderTodoPickerRow } from "./todoRowView";
 
 // ---------------------------------------------------------------------------
 // The todo picker for a work session — grouped Private/Roman compact rows
-// like DailySelectionModal/WeeklyView's todo picker, plus a filter (picking from
+// like DailyPlannerModal/WeeklyView's todo picker, plus a filter (picking from
 // *every* open todo needs one) and an inline estimated-minutes input per
 // row, since that's what makes session planning meaningful. Today's
 // must/maybe picks are pre-suggested (badge + sorted first), same
 // suggestion-not-auto-select treatment as the weekly-plan badge in
-// DailySelectionModal. Toggling in/out of the session saves immediately
+// DailyPlannerModal. Toggling in/out of the session saves immediately
 // (no batch Save button) so the sidebar session panel stays live-synced.
 // ---------------------------------------------------------------------------
 
@@ -92,42 +91,17 @@ export class SessionPlanModal extends Modal {
   }
 
   private renderRow(container: HTMLElement, todo: TodoItem) {
-    const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
-
-    const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-
-    const main = row.createEl("div", { cls: "novel-todo-row-main" });
-    main.setAttr("aria-label", "Edit todo…");
-    main.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refresh()).open();
-
-    main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
-    if (this.todaySuggestedIds.has(todo.id)) {
-      main.createEl("span", { text: "Today", cls: "novel-todo-week-badge" });
-    }
-    if (todo.source !== "private") {
-      main.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
-    }
-    if (todo.deadline) {
-      main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
-    }
-    if (todo.subtasks.length > 0) {
-      const done = todo.subtasks.filter((s) => s.done).length;
-      main.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
-    }
-
-    if (todo.source !== "private") {
-      const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
-      setIcon(openBtn, "external-link");
-      openBtn.setAttr("aria-label", "Jump to this todo in its file");
-      openBtn.onclick = async (evt) => {
-        evt.stopPropagation();
-        const file = this.app.vault.getAbstractFileByPath(todo.filePath);
-        if (!(file instanceof TFile)) return;
-        this.close();
-        await this.app.workspace.openLinkText(`${file.basename}#^${todo.id}`, file.path, false);
-      };
-    }
+    const suggestionLabel = this.todaySuggestedIds.has(todo.id) ? "Today" : undefined;
+    const row = renderTodoPickerRow(
+      this.app,
+      this.plugin,
+      container,
+      todo,
+      suggestionLabel,
+      this.expandedTodoIds,
+      () => this.refresh(),
+      () => this.close()
+    );
 
     const estimateInput = row.createEl("input", {
       cls: "novel-session-estimate-input",

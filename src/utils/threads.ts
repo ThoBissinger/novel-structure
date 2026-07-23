@@ -545,23 +545,3 @@ export async function refreshThreadTrackerQuery(app: App, settings: NovelStructu
     return `${content.trimEnd()}\n\n${query}`;
   });
 }
-
-/** Finds an existing thread note of the given kind by title inside the
- * Threads folder, or creates a bare one (summary/characters/scope empty,
- * status "open") if none exists yet — the quick path used when typing a new
- * name straight from a scene's Conflicts/Motifs field. */
-export async function ensureThreadNote(
-  app: App,
-  settings: NovelStructureSettings,
-  title: string,
-  kind: ThreadKind
-): Promise<TFile> {
-  const existing = app.vault.getMarkdownFiles().find((f) => {
-    if (!isThreadFile(app, f, settings, kind)) return false;
-    const fm = app.metadataCache.getFileCache(f)?.frontmatter;
-    return fm?.title === title || f.basename === title;
-  });
-  if (existing) return existing;
-
-  return createThreadNote(app, settings, kind, { ...emptyThreadFields(), title });
-}

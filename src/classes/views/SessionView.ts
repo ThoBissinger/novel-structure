@@ -121,30 +121,36 @@ export class SessionView extends ItemView {
     container.createEl("p", { text: `${formatMinSec(planningRemainingMs(session))} left to plan`, cls: "novel-session-countdown" });
 
     const planBtn = container.createEl("button", { text: "Plan session", cls: "mod-cta novel-session-plan-btn" });
-    planBtn.onclick = () => this.openSessionPlanModal();
+    planBtn.onclick = () =>
+      this.withQuickTodoReview(
+        () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open(),
+        "Continue to session planning →"
+      );
 
     const skipBtn = container.createEl("button", { text: "Start working now →", cls: "novel-structure-inline-btn" });
-    skipBtn.onclick = async () => {
-      await skipPlanningPhase(this.plugin);
-      await this.render();
-    };
+    skipBtn.onclick = () =>
+      this.withQuickTodoReview(async () => {
+        await skipPlanningPhase(this.plugin);
+        await this.render();
+      }, "Start working now →");
 
     this.renderTodoList(container, sessionTodos);
   }
 
-  /** Gate in front of SessionPlanModal: if there are quick todos still
-   * flagged `needsReview` (added on the go via QuickTodoModal, text-only),
-   * a review step goes first — same reasoning as the check-in banner
-   * elsewhere, this is meant to catch you right when you actually sit down
-   * to work, not nag at any other time. Skips straight to planning if
-   * there's nothing to review. */
-  private async openSessionPlanModal() {
+  /** Gate in front of both "Plan session" and "Start working now →": if
+   * there are quick todos still flagged `needsReview` (added on the go via
+   * QuickTodoModal, text-only), a review step goes first — this is meant to
+   * catch you right when you actually sit down to work, not nag at any
+   * other time, so it has to sit in front of *every* way a session's
+   * planning phase can end, not just the "Plan session" path (that path
+   * alone used to let "Start working now →" skip the review entirely).
+   * Runs `after` directly if there's nothing to review. */
+  private async withQuickTodoReview(after: () => void | Promise<void>, continueLabel?: string) {
     const pending = (await collectTodos(this.plugin)).filter((t) => t.needsReview && t.status !== "done");
-    const openPlanModal = () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open();
     if (pending.length > 0) {
-      new QuickTodoReviewModal(this.app, this.plugin, pending, openPlanModal).open();
+      new QuickTodoReviewModal(this.app, this.plugin, pending, () => void after(), continueLabel).open();
     } else {
-      openPlanModal();
+      await after();
     }
   }
 

@@ -19,13 +19,21 @@ export class QuickTodoReviewModal extends Modal {
   plugin: NovelStructurePlugin;
   todos: TodoItem[];
   onContinue: () => void;
+  continueLabel: string;
   listEl!: HTMLElement;
 
-  constructor(app: App, plugin: NovelStructurePlugin, todos: TodoItem[], onContinue: () => void) {
+  constructor(
+    app: App,
+    plugin: NovelStructurePlugin,
+    todos: TodoItem[],
+    onContinue: () => void,
+    continueLabel = "Continue →"
+  ) {
     super(app);
     this.plugin = plugin;
     this.todos = todos;
     this.onContinue = onContinue;
+    this.continueLabel = continueLabel;
   }
 
   onOpen() {
@@ -41,7 +49,7 @@ export class QuickTodoReviewModal extends Modal {
 
     new Setting(contentEl).addButton((btn) =>
       btn
-        .setButtonText("Continue to session planning →")
+        .setButtonText(this.continueLabel)
         .setCta()
         .onClick(() => this.close())
     );

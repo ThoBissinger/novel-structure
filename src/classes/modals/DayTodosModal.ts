@@ -2,7 +2,7 @@ import { App, Modal } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { buildTodoTargets, collectTodos, sortTodosForDisplay } from "../../utils/todos";
 import { AssignDeadlineModal } from "./AssignDeadlineModal";
-import { DailySelectionModal } from "./DailySelectionModal";
+import { DailyPlannerModal } from "./DailyPlannerModal";
 import { renderTodoRow } from "./todoRowView";
 import { TodoAddModal } from "./TodoAddModal";
 
@@ -52,7 +52,7 @@ export class DayTodosModal extends Modal {
 
     const planDayBtn = actions.createEl("button", { text: "Edit must/maybe for this day" });
     planDayBtn.onclick = () => {
-      new DailySelectionModal(this.app, this.plugin, this.date, () => this.refresh()).open();
+      new DailyPlannerModal(this.app, this.plugin, this.date, () => this.refresh(), "todos").open();
     };
 
     await this.refresh();
