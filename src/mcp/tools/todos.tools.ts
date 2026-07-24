@@ -80,7 +80,7 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
     "set_todo_status",
     {
       title: "Set todo status",
-      description: "Sets a todo's status (open/in_progress/done) by id (see list_todos for ids).",
+      description: "Sets a todo's status (open/in_progress/blocked/done) by id (see list_todos for ids).",
       inputSchema: {
         path: z.string(),
         todoId: z.string(),

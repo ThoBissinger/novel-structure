@@ -37,6 +37,12 @@ export class SessionView extends ItemView {
   plugin: NovelStructurePlugin;
   plannedMinutesInput = 90;
   expandedTodoIds: Set<string> = new Set();
+  // Last collectTodos() result. Only the countdown numbers change between
+  // real data updates, so the 15s clock tick redraws from this instead of
+  // re-scanning the vault — collectTodos() reads every todo-relevant file
+  // and can take seconds on a large vault with slow (e.g. cloud-synced)
+  // storage; doing that every 15s made the panel hang repeatedly.
+  private cachedTodos: TodoItem[] | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: NovelStructurePlugin) {
     super(leaf);
@@ -56,21 +62,33 @@ export class SessionView extends ItemView {
   }
 
   async onOpen() {
-    // The clock needs to keep ticking even though nothing in the vault is
-    // changing — a plain interval, cleaned up automatically on unload.
-    this.registerInterval(window.setInterval(() => this.render(), 15000));
-    const debouncedRender = debounce(() => this.render(), 400, true);
+    this.registerInterval(window.setInterval(() => this.draw(), 15000));
+    const debouncedRefresh = debounce(() => this.refresh(), 400, true);
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (this.app.workspace.layoutReady && file instanceof TFile && isTodoRelevantFile(this.app, file, this.plugin)) {
-          debouncedRender();
+          debouncedRefresh();
         }
       })
     );
-    await this.render();
+    await this.refresh();
   }
 
-  async render() {
+  /** Re-reads todos from disk — only called when something could actually
+   * have changed (a todo mutation, a relevant file edit elsewhere, session
+   * start/end/plan). Fetches before touching the DOM, so the panel keeps
+   * showing its previous state instead of going blank while the read is in
+   * flight; `draw()` then does one synchronous swap once the data is in. */
+  private async refresh() {
+    const session = this.plugin.settings.activeSession;
+    this.cachedTodos = session ? await collectTodos(this.plugin) : null;
+    this.draw();
+  }
+
+  /** Pure DOM rebuild from whatever's already cached — no disk access, so
+   * it's safe to call on every 15s clock tick or after a cheap local state
+   * change. */
+  private draw() {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();
     container.addClass("novel-session-view");
@@ -81,7 +99,7 @@ export class SessionView extends ItemView {
       return;
     }
 
-    const allTodos = await collectTodos(this.plugin);
+    const allTodos = this.cachedTodos ?? [];
     const sessionTodos = session.todoIds
       .map((id) => allTodos.find((t) => t.id === id))
       .filter((t): t is TodoItem => !!t);
@@ -131,7 +149,7 @@ export class SessionView extends ItemView {
     const startBtn = container.createEl("button", { text: "Start session", cls: "mod-cta novel-session-start-btn" });
     startBtn.onclick = async () => {
       await startSession(this.plugin, this.plannedMinutesInput);
-      await this.render();
+      await this.refresh();
     };
   }
 
@@ -141,12 +159,12 @@ export class SessionView extends ItemView {
     container.createEl("p", { text: `${formatMinSec(planningRemainingMs(session))} left to plan`, cls: "novel-session-countdown" });
 
     const planBtn = container.createEl("button", { text: "Plan session", cls: "mod-cta novel-session-plan-btn" });
-    planBtn.onclick = () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open();
+    planBtn.onclick = () => new SessionPlanModal(this.app, this.plugin, () => this.refresh()).open();
 
     const skipBtn = container.createEl("button", { text: "Start working now →", cls: "novel-structure-inline-btn" });
     skipBtn.onclick = async () => {
       await skipPlanningPhase(this.plugin);
-      await this.render();
+      await this.refresh();
     };
 
     this.renderTodoList(container, sessionTodos);
@@ -177,14 +195,14 @@ export class SessionView extends ItemView {
     });
 
     const planBtn = container.createEl("button", { text: "Edit session", cls: "novel-structure-inline-btn" });
-    planBtn.onclick = () => new SessionPlanModal(this.app, this.plugin, () => this.render()).open();
+    planBtn.onclick = () => new SessionPlanModal(this.app, this.plugin, () => this.refresh()).open();
 
     this.renderTodoList(container, sessionTodos);
 
     const endBtn = container.createEl("button", { text: "End session", cls: "novel-session-end-btn" });
     endBtn.onclick = async () => {
       await endSession(this.plugin);
-      await this.render();
+      await this.refresh();
     };
   }
 
@@ -202,10 +220,11 @@ export class SessionView extends ItemView {
 
     const statusBtn = row.createEl("span", { cls: `novel-todo-status-btn novel-todo-status-${todo.status}` });
     if (todo.status === "done") statusBtn.setText("✓");
+    if (todo.status === "blocked") statusBtn.setText("!");
     statusBtn.onclick = async () => {
       const next = todo.status === "open" ? "in_progress" : todo.status === "in_progress" ? "done" : "open";
       await setTodoStatus(this.app, todo, next);
-      await this.render();
+      await this.refresh();
     };
 
     const text = row.createEl("span", {
@@ -213,7 +232,7 @@ export class SessionView extends ItemView {
       cls: "novel-session-row-text" + (todo.status === "done" ? " is-done" : ""),
       attr: { title: todo.text },
     });
-    text.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.render()).open();
+    text.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refresh()).open();
 
     if (todo.estimatedMinutes) {
       row.createEl("span", { text: `~${todo.estimatedMinutes}m`, cls: "novel-todo-estimate-badge" });
@@ -228,10 +247,10 @@ export class SessionView extends ItemView {
     removeBtn.setAttr("aria-label", "Remove from session");
     removeBtn.onclick = async () => {
       await removeSessionTodo(this.plugin, todo.id);
-      await this.render();
+      await this.refresh();
     };
 
-    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.render());
+    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.refresh());
   }
 
   async onClose() {}

@@ -1,4 +1,4 @@
-import { App, TFile, debounce, setIcon } from "obsidian";
+import { App, TFile, debounce, setIcon, setTooltip } from "obsidian";
 import { extractLinkBasename } from "../utils/files";
 import { NoteLinkSuggest } from "./NoteLinkSuggest";
 
@@ -10,25 +10,52 @@ import { NoteLinkSuggest } from "./NoteLinkSuggest";
 // frontmatter field they're writing to; callers pass an onSave callback.
 // ---------------------------------------------------------------------------
 
+/** A small "i" icon after a field's label that shows `tooltip` on hover —
+ * lets a row of compact side-by-side fields (see `.novel-board-field-row`)
+ * carry the explanatory text a `Setting`'s description paragraph would
+ * otherwise need, without each field claiming a full row's height for it. */
+export function appendFieldTooltip(label: HTMLElement, tooltip: string): void {
+  const icon = label.createSpan({ cls: "novel-board-field-tooltip-icon" });
+  setIcon(icon, "info");
+  setTooltip(icon, tooltip);
+}
+
 /** Compact field: small label flush to the edge, input stretched to the full available width. */
 export function addTextField(
   parent: HTMLElement,
   label: string,
   value: string,
   onSave: (v: string) => void,
-  opts: { type?: string; placeholder?: string; min?: string; max?: string; extraClass?: string } = {}
+  opts: {
+    type?: string;
+    placeholder?: string;
+    min?: string;
+    max?: string;
+    extraClass?: string;
+    tooltip?: string;
+    // Skips the debounce — for fields staged locally and only actually
+    // persisted on a later explicit "Save" (see TodoEditModal), where a
+    // 600ms-delayed update risks losing a keystroke typed right before Save
+    // is clicked.
+    immediate?: boolean;
+  } = {}
 ): HTMLInputElement {
   const wrap = parent.createEl("div", { cls: "novel-board-field" });
   if (opts.extraClass) wrap.addClass(opts.extraClass);
-  wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
+  const labelEl = wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
+  if (opts.tooltip) appendFieldTooltip(labelEl, opts.tooltip);
   const input = wrap.createEl("input", { cls: "novel-board-field-input" });
   if (opts.type) input.type = opts.type;
   if (opts.placeholder) input.placeholder = opts.placeholder;
   if (opts.min) input.min = opts.min;
   if (opts.max) input.max = opts.max;
   input.value = value;
-  const debouncedSave = debounce(onSave, 600, true);
-  input.addEventListener("input", () => debouncedSave(input.value));
+  if (opts.immediate) {
+    input.addEventListener("input", () => onSave(input.value));
+  } else {
+    const debouncedSave = debounce(onSave, 600, true);
+    input.addEventListener("input", () => debouncedSave(input.value));
+  }
   return input;
 }
 
@@ -36,15 +63,20 @@ export function addTextAreaField(
   parent: HTMLElement,
   label: string,
   value: string,
-  onSave: (v: string) => void
+  onSave: (v: string) => void,
+  opts: { immediate?: boolean } = {}
 ): HTMLTextAreaElement {
   const wrap = parent.createEl("div", { cls: "novel-board-field" });
   wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
   const textarea = wrap.createEl("textarea", { cls: "novel-board-field-input" });
   textarea.rows = 3;
   textarea.value = value;
-  const debouncedSave = debounce(onSave, 600, true);
-  textarea.addEventListener("input", () => debouncedSave(textarea.value));
+  if (opts.immediate) {
+    textarea.addEventListener("input", () => onSave(textarea.value));
+  } else {
+    const debouncedSave = debounce(onSave, 600, true);
+    textarea.addEventListener("input", () => debouncedSave(textarea.value));
+  }
   return textarea;
 }
 
@@ -87,10 +119,12 @@ export function addDropdownField(
   label: string,
   options: [string, string][],
   value: string,
-  onSave: (v: string) => void
+  onSave: (v: string) => void,
+  opts: { tooltip?: string } = {}
 ): HTMLSelectElement {
   const wrap = parent.createEl("div", { cls: "novel-board-field" });
-  wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
+  const labelEl = wrap.createEl("label", { text: label, cls: "novel-board-field-label" });
+  if (opts.tooltip) appendFieldTooltip(labelEl, opts.tooltip);
   const select = wrap.createEl("select", { cls: "novel-board-field-input" });
   options.forEach(([v, l]) => select.createEl("option", { text: l, value: v }));
   select.value = value;

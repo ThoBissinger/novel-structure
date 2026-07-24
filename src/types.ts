@@ -180,13 +180,14 @@ export interface TodoSubtask {
   done: boolean;
 }
 
-export type TodoStatus = "open" | "in_progress" | "done";
+export type TodoStatus = "open" | "in_progress" | "blocked" | "done";
 
-export const TODO_STATUS_ORDER: TodoStatus[] = ["open", "in_progress", "done"];
+export const TODO_STATUS_ORDER: TodoStatus[] = ["open", "in_progress", "blocked", "done"];
 
 export const TODO_STATUS_LABELS: Record<TodoStatus, string> = {
   open: "Open",
   in_progress: "In progress",
+  blocked: "Blocked",
   done: "Done",
 };
 

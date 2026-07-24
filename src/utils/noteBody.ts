@@ -203,8 +203,8 @@ function withThreadsSection(body: string, entries: Map<string, string>): string 
 const TODO_PRIORITY_MARKER: Record<TodoEntry["priority"], string> = { high: " (high)", medium: "", low: " (low)" };
 // Checkbox char: " " = open, "/" = in progress (same convention as the
 // Obsidian Tasks community plugin, so these lines still read sensibly
-// there), "x"/"X" = done.
-const TODO_LINE_RE = /^-\s\[([ xX/])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
+// there), "b"/"B" = blocked, "x"/"X" = done.
+const TODO_LINE_RE = /^-\s\[([ xXbB/])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$/;
 // Same shape as TODO_LINE_RE but requires leading indentation, so a subtask
 // line never matches as a new top-level todo (TODO_LINE_RE anchors at
 // column 0). No priority/deadline markers, and only open/done — subtasks
@@ -216,12 +216,16 @@ const SUBTASK_LINE_RE = /^\s+-\s\[([ xX])\]\s*(.*?)(?:\s*\^([a-zA-Z0-9-]+))?\s*$
 const NOTE_LINE_RE = /^\s+>\s?(.*)$/;
 
 function statusToChar(status: TodoStatus): string {
-  return status === "done" ? "x" : status === "in_progress" ? "/" : " ";
+  if (status === "done") return "x";
+  if (status === "in_progress") return "/";
+  if (status === "blocked") return "b";
+  return " ";
 }
 
 function charToStatus(ch: string): TodoStatus {
   if (ch.toLowerCase() === "x") return "done";
   if (ch === "/") return "in_progress";
+  if (ch.toLowerCase() === "b") return "blocked";
   return "open";
 }
 

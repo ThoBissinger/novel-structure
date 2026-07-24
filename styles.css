@@ -216,11 +216,29 @@
 }
 
 .novel-board-field-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.7em;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+}
+
+/* appendFieldTooltip() — an "i" icon after a field's label carrying the
+   explanatory text a Setting's description paragraph would otherwise need,
+   so a row of compact fields doesn't each claim a full row's height for it. */
+.novel-board-field-tooltip-icon {
+  display: inline-flex;
+  color: var(--text-faint);
+  cursor: help;
+  flex-shrink: 0;
+}
+.novel-board-field-tooltip-icon svg {
+  width: 11px;
+  height: 11px;
+  display: block;
 }
 
 .novel-board-field-input {
@@ -595,6 +613,13 @@ textarea.novel-board-field-input {
    trailing space. */
 .novel-planner-modal {
   width: min(640px, 92vw);
+}
+
+/* Wider than the default modal so the Status/Priority and Deadline/
+   Estimated/Repeat rows (.novel-board-field-row) have room to sit side by
+   side without each field squeezing down to a sliver. */
+.novel-todo-edit-modal {
+  width: min(560px, 92vw);
 }
 .novel-planner-modal .modal-content {
   overflow: visible;
@@ -1120,9 +1145,11 @@ textarea.novel-board-field-input {
   margin-top: 3px;
 }
 
-/* Tri-state status control (open → in progress → done), the one thing this
-   row still lets you change directly. Colored/filled state communicates
-   status without needing an icon font. */
+/* Status control — click cycles open → in progress → done (the routine
+   path), the one thing this row still lets you change directly. "Blocked"
+   is deliberate, not part of that cycle, so it's only reachable via "Edit
+   todo"; clicking the dot on a blocked todo just resets it to open.
+   Colored/filled state communicates status without needing an icon font. */
 .novel-todo-status-btn {
   flex-shrink: 0;
   width: 15px;
@@ -1144,6 +1171,10 @@ textarea.novel-board-field-input {
 .novel-todo-status-in_progress {
   border-color: var(--interactive-accent, #7c3aed);
   background: linear-gradient(135deg, var(--interactive-accent, #7c3aed) 50%, transparent 50%);
+}
+.novel-todo-status-blocked {
+  border-color: var(--text-error, #dc2626);
+  background: var(--text-error, #dc2626);
 }
 .novel-todo-status-done {
   border-color: #2ecc71;

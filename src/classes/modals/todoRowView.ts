@@ -38,6 +38,7 @@ export function renderTodoRow(
   // a wall of input fields.
   const statusBtn = row.createEl("span", { cls: `novel-todo-status-btn novel-todo-status-${todo.status}` });
   if (todo.status === "done") statusBtn.setText("✓");
+  if (todo.status === "blocked") statusBtn.setText("!");
   statusBtn.setAttr("aria-label", `Status: ${TODO_STATUS_LABELS[todo.status]} (click to change)`);
   statusBtn.onclick = async (evt) => {
     evt.stopPropagation();

@@ -1,5 +1,6 @@
 import { App, Modal, Notice, Setting, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
+import { addDropdownField, addTextAreaField, addTextField, appendFieldTooltip } from "../FieldBuilders";
 import { PRIORITY_ORDER, Priority, TodoItem, TodoStatus, TODO_STATUS_LABELS, TODO_STATUS_ORDER } from "../../types";
 import {
   addSubtask,
@@ -58,6 +59,10 @@ export class TodoEditModal extends Modal {
   }
 
   onOpen() {
+    // Default modal width is too narrow for the Status/Priority and
+    // Deadline/Estimated/Repeat rows below to sit side by side without
+    // squeezing each field's input down to a sliver.
+    this.modalEl.addClass("novel-todo-edit-modal");
     const { contentEl } = this;
     contentEl.createEl("h2", { text: "Edit todo" });
     contentEl.createEl("p", {
@@ -65,91 +70,99 @@ export class TodoEditModal extends Modal {
       cls: "setting-item-description",
     });
 
-    new Setting(contentEl).setName("Text").addText((t) => {
-      t.setValue(this.text).onChange((v) => (this.text = v));
-      t.inputEl.style.width = "100%";
-      t.inputEl.focus();
+    const form = contentEl.createEl("div", { cls: "novel-board-form" });
+
+    const textInput = addTextField(form, "Text", this.text, (v) => (this.text = v), { immediate: true });
+    textInput.focus();
+
+    const statusPriorityRow = form.createEl("div", { cls: "novel-board-field-row" });
+    addDropdownField(
+      statusPriorityRow,
+      "Status",
+      TODO_STATUS_ORDER.map((s) => [s, TODO_STATUS_LABELS[s]] as [string, string]),
+      this.status,
+      (v) => (this.status = v as TodoStatus)
+    );
+    addDropdownField(
+      statusPriorityRow,
+      "Priority",
+      PRIORITY_ORDER.map((p) => [p, p] as [string, string]),
+      this.priority,
+      (v) => (this.priority = v as Priority)
+    );
+
+    const scheduleRow = form.createEl("div", { cls: "novel-board-field-row" });
+
+    const deadlineWrap = scheduleRow.createEl("div", { cls: "novel-board-field" });
+    const deadlineLabel = deadlineWrap.createEl("label", { text: "Deadline", cls: "novel-board-field-label" });
+    appendFieldTooltip(
+      deadlineLabel,
+      'Optional. "YYYY-MM-DD", "today", "tomorrow", or "+7" (days from today). Highlighted the day before, red once due/overdue.'
+    );
+    const deadlineInput = deadlineWrap.createEl("input", {
+      cls: "novel-board-field-input",
+      attr: { placeholder: "YYYY-MM-DD, today, +7…" },
+    });
+    deadlineInput.value = this.deadline ?? "";
+    const commitDeadline = () => {
+      const raw = deadlineInput.value.trim();
+      if (!raw) {
+        this.deadline = null;
+        return;
+      }
+      const parsed = parseQuickDate(raw);
+      if (parsed) {
+        this.deadline = parsed;
+        deadlineInput.value = parsed;
+      } else {
+        new Notice(`Couldn't parse "${raw}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
+      }
+    };
+    deadlineInput.addEventListener("blur", commitDeadline);
+    deadlineInput.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") {
+        evt.preventDefault();
+        commitDeadline();
+      }
     });
 
-    new Setting(contentEl).setName("Status").addDropdown((dd) => {
-      TODO_STATUS_ORDER.forEach((s) => dd.addOption(s, TODO_STATUS_LABELS[s]));
-      dd.setValue(this.status);
-      dd.onChange((v: string) => (this.status = v as TodoStatus));
-    });
-
-    new Setting(contentEl).setName("Priority").addDropdown((dd) => {
-      PRIORITY_ORDER.forEach((p) => dd.addOption(p, p));
-      dd.setValue(this.priority);
-      dd.onChange((v: string) => (this.priority = v as Priority));
-    });
-
-    new Setting(contentEl)
-      .setName("Deadline")
-      .setDesc('Optional. "YYYY-MM-DD", "today", "tomorrow", or "+7" (days from today). Highlighted the day before, red once due/overdue.')
-      .addText((t) => {
-        t.setPlaceholder("YYYY-MM-DD, today, +7…");
-        t.inputEl.value = this.deadline ?? "";
-        const commit = () => {
-          const raw = t.inputEl.value.trim();
-          if (!raw) {
-            this.deadline = null;
-            return;
-          }
-          const parsed = parseQuickDate(raw);
-          if (parsed) {
-            this.deadline = parsed;
-            t.inputEl.value = parsed;
-          } else {
-            new Notice(`Couldn't parse "${raw}" as a date — try YYYY-MM-DD, today, tomorrow, or +7.`);
-          }
-        };
-        t.inputEl.addEventListener("blur", commit);
-        t.inputEl.addEventListener("keydown", (evt) => {
-          if (evt.key === "Enter") {
-            evt.preventDefault();
-            commit();
-          }
-        });
-      });
-
-    new Setting(contentEl)
-      .setName("Estimated minutes")
-      .setDesc("Optional. Used for session planning — budgeting picked todos against how much time is actually available.")
-      .addText((t) => {
-        t.inputEl.type = "number";
-        t.inputEl.min = "1";
-        t.inputEl.value = this.estimatedMinutes != null ? String(this.estimatedMinutes) : "";
-        t.onChange((v) => {
-          const n = parseInt(v, 10);
-          this.estimatedMinutes = Number.isFinite(n) && n >= 1 ? n : null;
-        });
-      });
+    addTextField(
+      scheduleRow,
+      "Estimated minutes",
+      this.estimatedMinutes != null ? String(this.estimatedMinutes) : "",
+      (v) => {
+        const n = parseInt(v, 10);
+        this.estimatedMinutes = Number.isFinite(n) && n >= 1 ? n : null;
+      },
+      {
+        type: "number",
+        min: "1",
+        immediate: true,
+        tooltip: "Optional. Used for session planning — budgeting picked todos against how much time is actually available.",
+      }
+    );
 
     // Recurrence only makes sense for private todos — see the same call in
     // TodoAddModal/TodoHubModal.
     if (this.todo.source === "private") {
-      new Setting(contentEl)
-        .setName("Repeat every … days")
-        .setDesc("Optional. Checking it off resets it to open and pushes the deadline out this many days, instead of staying done.")
-        .addText((t) => {
-          t.inputEl.type = "number";
-          t.inputEl.min = "1";
-          t.inputEl.value = this.recurrenceDays != null ? String(this.recurrenceDays) : "";
-          t.onChange((v) => {
-            const n = parseInt(v, 10);
-            this.recurrenceDays = Number.isFinite(n) && n >= 1 ? n : null;
-          });
-        });
+      addTextField(
+        scheduleRow,
+        "Repeat every … days",
+        this.recurrenceDays != null ? String(this.recurrenceDays) : "",
+        (v) => {
+          const n = parseInt(v, 10);
+          this.recurrenceDays = Number.isFinite(n) && n >= 1 ? n : null;
+        },
+        {
+          type: "number",
+          min: "1",
+          immediate: true,
+          tooltip: "Optional. Checking it off resets it to open and pushes the deadline out this many days, instead of staying done.",
+        }
+      );
     }
 
-    new Setting(contentEl)
-      .setName("Notes")
-      .setDesc("Optional. A URL, an email address, a stray comment — anything extra that isn't a step.")
-      .addTextArea((t) => {
-        t.setValue(this.notes).onChange((v) => (this.notes = v));
-        t.inputEl.rows = 3;
-        t.inputEl.style.width = "100%";
-      });
+    addTextAreaField(form, "Notes", this.notes, (v) => (this.notes = v), { immediate: true });
 
     new Setting(contentEl).setName("Subtasks").setDesc("Changes here save immediately, independent of \"Save\" below.");
     const subtaskList = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-list" });
