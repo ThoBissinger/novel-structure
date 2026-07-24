@@ -1,10 +1,11 @@
 import { Menu, Notice, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem, TodoStatus, TODO_STATUS_LABELS } from "../../types";
+import { TodoItem, TodoStatus, TODO_STATUS_LABELS } from "../../types";
 import { deadlineUrgency, isTodoEditable, setTodoStatus, todayDate, tomorrowDate } from "../../utils/todos";
 import { TodoEditModal } from "../modals/TodoEditModal";
 import { jumpToTodo, TodoRowOptions } from "../modals/todoRowView";
+import { createPriorityDot } from "./priorityDot";
 
 // ---------------------------------------------------------------------------
 // Custom-element prototype for the compact todo row — same look and
@@ -133,9 +134,7 @@ export class TodoRowElement extends HTMLElement {
       statusBtn.setAttr("aria-label", `Status: ${TODO_STATUS_LABELS[todo.status]} (local editing off — edit in Google Tasks)`);
     }
 
-    const dot = this.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-    dot.setAttr("aria-label", `Priority: ${todo.priority}`);
+    createPriorityDot(this, todo.priority, `Priority: ${todo.priority}`);
 
     const main = this.createEl("div", { cls: "novel-todo-row-main" });
     if (editable) {

@@ -1,10 +1,11 @@
 import { Notice, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
+import { TodoItem } from "../../types";
 import { isTodoEditable, setSubtaskDone } from "../../utils/todos";
 import { TodoEditModal } from "../modals/TodoEditModal";
 import { jumpToTodo } from "../modals/todoRowView";
+import { createPriorityDot } from "./priorityDot";
 
 // ---------------------------------------------------------------------------
 // Custom-element rewrite of todoRowView.ts's renderTodoPickerRow() — used by
@@ -97,9 +98,7 @@ export class TodoPickerRowElement extends HTMLElement {
     this.addClass("novel-todo-row", "novel-todo-row-compact");
     const todo = this._todo;
 
-    const dot = this.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-    dot.setAttr("aria-label", `Priority: ${todo.priority}`);
+    createPriorityDot(this, todo.priority, `Priority: ${todo.priority}`);
 
     const main = this.createEl("div", { cls: "novel-todo-row-main" });
     if (isTodoEditable(this.plugin, todo)) {

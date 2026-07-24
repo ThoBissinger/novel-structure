@@ -48,7 +48,7 @@ export class TodoQuickSectionElement extends HTMLElement {
   }
 
   connectedCallback() {
-    this.addClass("novel-todo-section", "novel-todo-quick-section");
+    this.addClass("novel-todo-section", "novel-todo-quick-section", "novel-content-el");
     if (!this.listBox) this.build();
     this.apply();
   }

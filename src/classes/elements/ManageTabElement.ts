@@ -67,6 +67,7 @@ export class ManageTabElement extends HTMLElement {
   }
 
   connectedCallback() {
+    this.addClass("novel-content-el");
     if (!this.privateColumn) this.build();
     this.apply();
   }

@@ -1,8 +1,9 @@
 import { setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
+import { TodoItem } from "../../types";
 import { setTodoDeadline } from "../../utils/todos";
+import { createPriorityDot } from "./priorityDot";
 
 // ---------------------------------------------------------------------------
 // AssignDeadlineModal's picker row — dot + text + source + current-deadline
@@ -71,8 +72,7 @@ export class AssignDeadlineRowElement extends HTMLElement {
     this.addClass("novel-todo-row", "novel-todo-row-compact");
     const todo = this._todo;
 
-    const dot = this.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+    createPriorityDot(this, todo.priority);
 
     const main = this.createEl("div", { cls: "novel-todo-row-main" });
     main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });

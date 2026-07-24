@@ -54,7 +54,7 @@ export class PlanTabElement extends HTMLElement {
   }
 
   connectedCallback() {
-    this.addClass("novel-todo-plan-tab");
+    this.addClass("novel-todo-plan-tab", "novel-content-el");
     if (!this.weekBox) this.build();
     this.apply();
   }

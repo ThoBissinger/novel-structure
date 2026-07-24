@@ -41,6 +41,7 @@ export class CompletedPrivateSectionElement extends HTMLElement {
   }
 
   connectedCallback() {
+    this.addClass("novel-content-el");
     if (!this.toggleEl) this.build();
     this.apply();
   }

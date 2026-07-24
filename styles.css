@@ -636,22 +636,17 @@ textarea.novel-board-field-input {
   padding-right: 6px;
 }
 
-/* All of these used to be plain <div>s, which are block-level by default;
-   now that they're custom elements they default to `display: inline`
-   instead, which breaks their own box (border/padding/background render
-   but don't clear properly around block children) and the layout below
-   them. Rows already get `display: flex` from `.novel-todo-row`; this is
-   only the container elements that had no display rule of their own. */
-novel-todo-group-el,
-novel-todo-scene-group-el,
-novel-todo-column-el,
-novel-todo-manuscript-column-el,
-novel-todo-quick-section-el,
-novel-todo-day-box-el,
-novel-todo-completed-el,
-novel-plan-tab-el,
-novel-manage-tab-el,
-novel-subtask-list-el {
+/* Every "content element" (a Modal/View's entire content, or a structural
+   container within one — list/group/column/section/tab wrapper) used to be
+   a plain <div>, block-level by default; a custom element defaults to
+   `display: inline` instead, which breaks its own box (border/padding/
+   background render but don't clear properly around block children) and
+   the layout below it. Every content element adds this class in its own
+   connectedCallback (see e.g. TodoColumnElement.ts) — one shared rule
+   instead of hand-maintaining a tag-name list that grows with every new
+   element. Rows get `display: flex` from `.novel-todo-row` or similar
+   instead, since a row's box is meant to lay itself out horizontally. */
+.novel-content-el {
   display: block;
 }
 

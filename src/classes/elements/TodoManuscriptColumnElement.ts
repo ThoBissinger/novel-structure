@@ -1,8 +1,8 @@
 import { TFile, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { STRUCTURE_TYPES, StructureType, TodoItem } from "../../types";
-import { extractLinkBasename, isStructureFile } from "../../utils/files";
+import { StructureType, TodoItem } from "../../types";
+import { extractLinkBasename, fileTitle, isStructureFile, sortFilesByOrder, structureDepthIndex } from "../../utils/files";
 import { findRootNote } from "../../utils/rootNote";
 import { deadlineUrgency } from "../../utils/todos";
 import { TodoRowOptions } from "../modals/todoRowView";
@@ -83,6 +83,7 @@ export class TodoManuscriptColumnElement extends HTMLElement {
   }
 
   connectedCallback() {
+    this.addClass("novel-content-el");
     if (!this.listBox) this.build();
     this.refreshList();
   }
@@ -280,13 +281,6 @@ export class TodoManuscriptColumnElement extends HTMLElement {
       childrenByParent.get(parentName)!.push(f);
     });
 
-    const sortByOrder = (files: TFile[]) =>
-      [...files].sort((a, b) => {
-        const fa = this.app.metadataCache.getFileCache(a)?.frontmatter;
-        const fb = this.app.metadataCache.getFileCache(b)?.frontmatter;
-        return ((fa?.order as number) ?? 0) - ((fb?.order as number) ?? 0);
-      });
-
     const hasTodosCache = new Map<string, boolean>();
     const subtreeHasTodos = (file: TFile): boolean => {
       const cached = hasTodosCache.get(file.path);
@@ -307,21 +301,12 @@ export class TodoManuscriptColumnElement extends HTMLElement {
       return result;
     };
 
-    const fileTitle = (file: TFile): string => {
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      return (fm?.title as string) || file.basename;
-    };
-
-    const depthIndex = (type: StructureType | string | undefined): number => {
-      const idx = STRUCTURE_TYPES.indexOf(type as StructureType);
-      return idx === -1 ? STRUCTURE_TYPES.length - 1 : idx;
-    };
     const visibleDepth = this.plugin.settings.todoTreeVisibleDepth;
     const isNodeExpanded = (key: string, file: TFile): boolean => {
       if (this.expandedSceneKeys.has(key)) return true;
       if (this.collapsedSceneKeys.has(key)) return false;
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      return depthIndex(fm?.type as StructureType | undefined) < depthIndex(visibleDepth);
+      return structureDepthIndex(fm?.type as StructureType | undefined) < structureDepthIndex(visibleDepth);
     };
 
     const renderNode = (parent: HTMLElement, file: TFile) => {
@@ -332,14 +317,14 @@ export class TodoManuscriptColumnElement extends HTMLElement {
           this.plugin,
           parent,
           this.expandedSceneKeys,
-          { key: `tree:${file.path}`, title: fileTitle(file), todos: ownTodos },
+          { key: `tree:${file.path}`, title: fileTitle(this.app, file), todos: ownTodos },
           this.opts,
           this.refresh,
           this.closeModal
         );
       }
 
-      const children = sortByOrder(childrenByParent.get(file.basename) ?? []).filter(subtreeHasTodos);
+      const children = sortFilesByOrder(this.app, childrenByParent.get(file.basename) ?? []).filter(subtreeHasTodos);
       if (children.length === 0) return;
 
       const key = `tree-node:${file.path}`;
@@ -350,7 +335,7 @@ export class TodoManuscriptColumnElement extends HTMLElement {
       const header = nodeEl.createEl("div", { cls: "novel-todo-scene-header" });
       const chevron = header.createEl("span", { cls: "novel-todo-scene-chevron" });
       setIcon(chevron, isExpanded ? "chevron-down" : "chevron-right");
-      header.createEl("span", { text: fileTitle(file), cls: "novel-todo-scene-title novel-todo-tree-title" });
+      header.createEl("span", { text: fileTitle(this.app, file), cls: "novel-todo-scene-title novel-todo-tree-title" });
       header.createEl("span", { text: `${childrenTotal}`, cls: "novel-todo-group-count" });
 
       const body = nodeEl.createEl("div", { cls: "novel-todo-scene-body" });
@@ -385,13 +370,13 @@ export class TodoManuscriptColumnElement extends HTMLElement {
         this.plugin,
         container,
         this.expandedSceneKeys,
-        { key: `tree:${root.path}`, title: fileTitle(root), todos: rootOwnTodos },
+        { key: `tree:${root.path}`, title: fileTitle(this.app, root), todos: rootOwnTodos },
         this.opts,
         this.refresh,
         this.closeModal
       );
     }
-    sortByOrder(childrenByParent.get(root.basename) ?? [])
+    sortFilesByOrder(this.app, childrenByParent.get(root.basename) ?? [])
       .filter(subtreeHasTodos)
       .forEach((file) => renderNode(container, file));
   }

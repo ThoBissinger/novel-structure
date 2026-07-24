@@ -1,6 +1,7 @@
 import { setIcon } from "obsidian";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
+import { TodoItem } from "../../types";
 import { formatTime } from "../../utils/checkInNotes";
+import { createPriorityDot } from "./priorityDot";
 
 // ---------------------------------------------------------------------------
 // One "not scheduled yet" suggestion in DailyPlannerModal's Schedule tab —
@@ -63,8 +64,7 @@ export class ScheduleSuggestionRowElement extends HTMLElement {
     this.empty();
     const todo = this._todo;
 
-    const dot = this.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+    createPriorityDot(this, todo.priority);
     this.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
 
     const timeInput = this.createEl("input", {

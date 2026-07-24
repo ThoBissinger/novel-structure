@@ -85,7 +85,7 @@ export class DayBoxElement extends HTMLElement {
   }
 
   connectedCallback() {
-    this.addClass("novel-todo-day-box");
+    this.addClass("novel-todo-day-box", "novel-content-el");
     if (!this.headerTextEl) this.build();
     if (this._data) this.apply();
   }

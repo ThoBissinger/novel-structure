@@ -1,9 +1,11 @@
-import { App, Modal, Setting } from "obsidian";
+import { App, Modal } from "obsidian";
+import { createConfirmDialogElement } from "../elements/ConfirmDialogElement";
 
 // ---------------------------------------------------------------------------
 // A small reusable yes/no gate for actions that are hard to undo by accident
 // (deleting a todo, promoting a subtask into its own todo) — nothing fancy,
-// just a message and a Cancel/confirm button pair.
+// just a message and a Cancel/confirm button pair. Thin shell around
+// ConfirmDialogElement, which owns the actual content.
 // ---------------------------------------------------------------------------
 
 export class ConfirmModal extends Modal {
@@ -19,19 +21,16 @@ export class ConfirmModal extends Modal {
   }
 
   onOpen() {
-    const { contentEl } = this;
-    contentEl.createEl("p", { text: this.message });
-    new Setting(contentEl)
-      .addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
-      .addButton((btn) =>
-        btn
-          .setButtonText(this.confirmText)
-          .setWarning()
-          .onClick(() => {
-            this.close();
-            this.onConfirm();
-          })
-      );
+    createConfirmDialogElement(
+      this.contentEl,
+      this.message,
+      this.confirmText,
+      () => {
+        this.close();
+        this.onConfirm();
+      },
+      () => this.close()
+    );
   }
 
   onClose() {

@@ -1,6 +1,6 @@
 import { App, Modal, TFile } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { StructureNoteEditor } from "../StructureNoteEditor";
+import { createMetadataFormElement } from "../elements/MetadataFormElement";
 
 // ---------------------------------------------------------------------------
 // Standalone metadata editor for a single structure note — the same fields
@@ -22,22 +22,7 @@ export class MetadataEditorModal extends Modal {
   }
 
   onOpen() {
-    this.render();
-  }
-
-  render() {
-    const { contentEl } = this;
-    contentEl.empty();
-
-    const fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter;
-    const header = contentEl.createEl("h2", { text: fm?.title || this.file.basename });
-    header.style.cursor = "pointer";
-    header.onclick = () => {
-      this.close();
-      this.app.workspace.getLeaf(false).openFile(this.file);
-    };
-
-    new StructureNoteEditor(this.app, this.plugin, this.file, () => this.render()).render(contentEl);
+    createMetadataFormElement(this.app, this.plugin, this.contentEl, this.file, () => this.close());
   }
 
   onClose() {

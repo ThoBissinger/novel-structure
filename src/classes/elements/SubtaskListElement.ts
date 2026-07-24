@@ -34,6 +34,7 @@ export class SubtaskListElement extends HTMLElement {
   }
 
   connectedCallback() {
+    this.addClass("novel-content-el");
     if (!this.listBox) this.build();
     this.apply();
   }

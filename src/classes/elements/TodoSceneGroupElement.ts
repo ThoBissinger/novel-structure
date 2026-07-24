@@ -71,7 +71,7 @@ export class TodoSceneGroupElement extends HTMLElement {
   }
 
   connectedCallback() {
-    this.addClass("novel-todo-scene-group");
+    this.addClass("novel-todo-scene-group", "novel-content-el");
     if (!this.dot) this.build();
     this.apply();
   }

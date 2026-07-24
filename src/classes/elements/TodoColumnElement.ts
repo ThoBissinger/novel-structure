@@ -68,7 +68,7 @@ export class TodoColumnElement extends HTMLElement {
   }
 
   connectedCallback() {
-    this.addClass("novel-todo-column");
+    this.addClass("novel-todo-column", "novel-content-el");
     if (!this.groupsBox) this.build();
     this.apply();
   }

@@ -59,6 +59,7 @@ export class TodoGroupElement extends HTMLElement {
   }
 
   connectedCallback() {
+    this.addClass("novel-content-el");
     if (!this.dot) this.build();
     this.apply();
   }

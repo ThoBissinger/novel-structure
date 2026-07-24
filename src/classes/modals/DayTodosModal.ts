@@ -1,27 +1,18 @@
 import { App, Modal } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { TodoItem } from "../../types";
-import { buildTodoTargets, collectTodos, sortTodosForDisplay } from "../../utils/todos";
-import { createTodoRowElement } from "../elements/TodoRowElement";
-import { AssignDeadlineModal } from "./AssignDeadlineModal";
-import { DailyPlannerModal } from "./DailyPlannerModal";
-import { TodoAddModal } from "./TodoAddModal";
+import { createDayTodosFormElement } from "../elements/DayTodosFormElement";
 
 // ---------------------------------------------------------------------------
 // Everything due on one calendar day, opened from RoadmapView (clicking a
 // day's number, or its "+N more" overflow chip) — a full compact-row list
 // instead of the calendar cell's cramped 2-3 chips, plus a quick-add
-// pre-targeted at this exact day. Fetches its own todos (rather than taking
-// a snapshot from the caller) so it stays correct across edits made from
-// within it, the same self-refreshing pattern as every other todo modal.
+// pre-targeted at this exact day.
 // ---------------------------------------------------------------------------
 
 export class DayTodosModal extends Modal {
   plugin: NovelStructurePlugin;
   date: string;
   onDone: () => void;
-  listEl!: HTMLElement;
-  todos: TodoItem[] = [];
 
   constructor(app: App, plugin: NovelStructurePlugin, date: string, onDone: () => void) {
     super(app);
@@ -30,55 +21,8 @@ export class DayTodosModal extends Modal {
     this.onDone = onDone;
   }
 
-  async onOpen() {
-    const { contentEl } = this;
-    contentEl.createEl("h2", { text: `Due ${this.date}` });
-    this.listEl = contentEl.createEl("div", { cls: "novel-todo-list" });
-
-    const actions = contentEl.createEl("div", { cls: "novel-todo-quickadd-buttons novel-roadmap-day-actions" });
-
-    const addBtn = actions.createEl("button", { text: "+ Add todo due this day", cls: "mod-cta" });
-    addBtn.onclick = async () => {
-      const targets = await buildTodoTargets(this.app, this.plugin);
-      new TodoAddModal(this.app, this.plugin, targets, 0, () => this.refresh(), this.date).open();
-    };
-
-    // Two ways to pull an *existing* todo onto this day instead of creating
-    // a new one: give it this day's deadline, or add it to this day's
-    // must/maybe plan (a deadline and a must/maybe pick are independent —
-    // a todo can have either, both, or neither).
-    const assignDeadlineBtn = actions.createEl("button", { text: "+ Assign existing todo" });
-    assignDeadlineBtn.onclick = () => {
-      new AssignDeadlineModal(this.app, this.plugin, this.date, () => this.refresh()).open();
-    };
-
-    const planDayBtn = actions.createEl("button", { text: "Edit must/maybe for this day" });
-    planDayBtn.onclick = () => {
-      new DailyPlannerModal(this.app, this.plugin, this.date, () => this.refresh(), "todos").open();
-    };
-
-    await this.refresh();
-  }
-
-  /** Refetches from disk — use after anything that could change which
-   * todos are due this day (add, assign-deadline, must/maybe edit). */
-  private async refresh() {
-    this.todos = (await collectTodos(this.plugin)).filter((t) => t.deadline === this.date && t.status !== "done");
-    this.draw();
-  }
-
-  /** Rebuilds the list from already-fetched todos — a status click never
-   * even calls this (see TodoRowElement.syncEverywhere), so in practice
-   * this only runs right after refresh() itself. */
-  private draw() {
-    this.listEl.empty();
-    if (this.todos.length === 0) {
-      this.listEl.createEl("p", { text: "Nothing due this day.", cls: "novel-todo-empty" });
-      return;
-    }
-    sortTodosForDisplay(this.todos).forEach((todo) =>
-      createTodoRowElement(this.app, this.plugin, this.listEl, todo, {}, () => this.refresh(), () => this.close())
-    );
+  onOpen() {
+    createDayTodosFormElement(this.app, this.plugin, this.contentEl, this.date, () => this.close());
   }
 
   onClose() {

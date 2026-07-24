@@ -1,9 +1,10 @@
 import { TFile, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
+import { TodoItem } from "../../types";
 import { isTodoEditable, removeTodo, setTodoNeedsReview } from "../../utils/todos";
 import { TodoEditModal } from "../modals/TodoEditModal";
+import { createPriorityDot } from "./priorityDot";
 
 // ---------------------------------------------------------------------------
 // Custom-element version of TodoHubModal's old renderQuickTodoRow() — a
@@ -77,8 +78,7 @@ export class QuickTodoRowElement extends HTMLElement {
     this.addClass("novel-todo-row", "novel-todo-row-compact");
     const todo = this._todo;
 
-    const dot = this.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
+    createPriorityDot(this, todo.priority);
 
     this.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
 
