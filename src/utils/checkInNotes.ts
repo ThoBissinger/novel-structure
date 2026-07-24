@@ -1,6 +1,7 @@
 import { App, TFile } from "obsidian";
 import type NovelStructurePlugin from "../main";
 import { splitFrontmatterAndBody } from "./noteBody";
+import { folderForContext } from "./novels";
 
 // ---------------------------------------------------------------------------
 // Daily check-in and weekly theme notes — real markdown files (unlike
@@ -120,11 +121,11 @@ export function formatGoalProgressLabel(progress: GoalProgress): string {
 }
 
 function dailyNoteFolder(plugin: NovelStructurePlugin): string {
-  return `${plugin.settings.structureFolder}/Daily`;
+  return `${folderForContext(plugin.app, plugin.settings)}/Daily`;
 }
 
 function weeklyNoteFolder(plugin: NovelStructurePlugin): string {
-  return `${plugin.settings.structureFolder}/Weekly`;
+  return `${folderForContext(plugin.app, plugin.settings)}/Weekly`;
 }
 
 export function dailyNotePath(plugin: NovelStructurePlugin, date: string): string {

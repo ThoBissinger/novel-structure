@@ -7,6 +7,13 @@ export class StructureView extends ItemView {
   plugin: NovelStructurePlugin;
   private contentElement: StructureViewElement | null = null;
 
+  /** Called after settings change externally (novel switcher, Settings tab,
+   * a new novel being created) — nothing in this view's own event
+   * registrations would otherwise notice. */
+  refresh(): void {
+    this.contentElement?.refresh();
+  }
+
   constructor(leaf: WorkspaceLeaf, plugin: NovelStructurePlugin) {
     super(leaf);
     this.plugin = plugin;

@@ -25,19 +25,15 @@ import { extractLinkBasename, isStructureFile } from "./files";
 
 const MAX_TREE_DEPTH = 40; // safety guard against malformed/circular parent links
 
-export function findRootNote(app: App, settings: NovelStructureSettings): TFile | null {
-  const candidates = app.vault.getMarkdownFiles().filter((f) => {
-    const fm = app.metadataCache.getFileCache(f)?.frontmatter;
-    return fm?.type === "book" && f.path.startsWith(settings.structureFolder);
-  });
-  return candidates[0] ?? null;
+export function findRootNote(app: App, folder: string): TFile | null {
+  return findAllRootNotes(app, folder)[0] ?? null;
 }
 
-/** Returns every root note found (useful to warn about more than one). */
-export function findAllRootNotes(app: App, settings: NovelStructureSettings): TFile[] {
+/** Returns every root note found in `folder` (useful to warn about more than one). */
+export function findAllRootNotes(app: App, folder: string): TFile[] {
   return app.vault.getMarkdownFiles().filter((f) => {
     const fm = app.metadataCache.getFileCache(f)?.frontmatter;
-    return fm?.type === "book" && f.path.startsWith(settings.structureFolder);
+    return fm?.type === "book" && f.path.startsWith(folder);
   });
 }
 
@@ -55,11 +51,11 @@ function uniqueRootFileName(app: App, folder: string, title: string): string {
 export async function createRootNote(
   app: App,
   settings: NovelStructureSettings,
+  folder: string,
   title: string,
   author: string,
   targetWordCount: number | null
 ): Promise<TFile> {
-  const folder = settings.structureFolder;
   if (!(await app.vault.adapter.exists(folder))) {
     await app.vault.createFolder(folder);
   }
@@ -84,7 +80,7 @@ export async function createRootNote(
   ];
 
   const file = await app.vault.create(`${folder}/${fileName}.md`, lines.join("\n"));
-  await updateStructureMetadata(app, settings);
+  await updateStructureMetadata(app, settings, folder);
   return file;
 }
 
@@ -113,13 +109,13 @@ function sameStringArray(a: string[] | undefined, b: string[]): boolean {
  * sync on every structure file. Safe to call often — only writes files
  * whose computed value actually changed.
  */
-export async function updateStructureMetadata(app: App, settings: NovelStructureSettings) {
-  const root = findRootNote(app, settings);
+export async function updateStructureMetadata(app: App, settings: NovelStructureSettings, folder: string) {
+  const root = findRootNote(app, folder);
   if (!root) return;
 
   const structureFiles = app.vault
     .getFiles()
-    .filter((f) => isStructureFile(app, f, settings) && f.path !== root.path);
+    .filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(folder) && f.path !== root.path);
 
   // --- total word/page count on the root note ---
   let totalWords = 0;

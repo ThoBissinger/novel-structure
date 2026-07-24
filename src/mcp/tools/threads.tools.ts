@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { isStructureFile } from "../../utils/files";
+import { folderForContext } from "../../utils/novels";
 import {
   addThreadDevelopmentToScene,
   collectThreadDevelopments,
@@ -19,7 +20,7 @@ import {
 } from "../../utils/threads";
 import type { ToolContext } from "../toolContext";
 import { errorResult, jsonResult } from "../toolResult";
-import { resolveFile } from "./shared";
+import { novelFolderParam, resolveFile } from "./shared";
 
 const THREAD_KINDS: [ThreadKind, ...ThreadKind[]] = ["conflict", "motif", "event", "plant"];
 
@@ -65,13 +66,14 @@ export function registerThreadTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "List threads",
       description: "Lists conflict/motif/event/plant thread notes, optionally filtered by kind.",
-      inputSchema: { kind: z.enum(THREAD_KINDS).optional() },
+      inputSchema: { kind: z.enum(THREAD_KINDS).optional(), novel_folder: novelFolderParam },
     },
-    async ({ kind }) => {
+    async ({ kind, novel_folder }) => {
       const { app, settings } = ctx.plugin;
+      const folder = novel_folder ?? folderForContext(app, settings);
       const rows = app.vault
         .getMarkdownFiles()
-        .filter((f) => isThreadFile(app, f, settings, kind))
+        .filter((f) => isThreadFile(app, f, settings, kind) && f.path.startsWith(folder))
         .map((f) => {
           const fm = app.metadataCache.getFileCache(f)?.frontmatter;
           return { path: f.path, kind: fm?.type as ThreadKind, ...readThreadFields(app, f) };
@@ -116,10 +118,11 @@ export function registerThreadTools(server: McpServer, ctx: ToolContext): void {
     {
       title: "Create thread",
       description: "Creates a new conflict/motif/event/plant thread note.",
-      inputSchema: { kind: z.enum(THREAD_KINDS), title: z.string(), ...threadFieldsInputShape },
+      inputSchema: { kind: z.enum(THREAD_KINDS), title: z.string(), novel_folder: novelFolderParam, ...threadFieldsInputShape },
     },
-    async ({ kind, title, ...rest }: { kind: ThreadKind; title: string } & ThreadFieldsInput) => {
+    async ({ kind, title, novel_folder, ...rest }: { kind: ThreadKind; title: string; novel_folder?: string } & ThreadFieldsInput) => {
       const { app, settings } = ctx.plugin;
+      const folder = novel_folder ?? folderForContext(app, settings);
       const fields: ThreadFields = {
         ...emptyThreadFields(),
         title,
@@ -134,7 +137,7 @@ export function registerThreadTools(server: McpServer, ctx: ToolContext): void {
         endYear: rest.endYear ?? null,
         endMonth: rest.endMonth ?? null,
       };
-      const file = await createThreadNote(app, settings, kind, fields);
+      const file = await createThreadNote(app, settings, folder, kind, fields);
       return jsonResult({ path: file.path, kind, ...fields });
     }
   );

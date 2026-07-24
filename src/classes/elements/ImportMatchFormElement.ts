@@ -5,6 +5,7 @@ import { ParsedImport, ParsedNode } from "../../types";
 import { applyUpdateImport, computeAutoMatches, getUpdatableStructureFiles, UpdateTextMode } from "../../utils/updateImport";
 import { createRootNote, findRootNote } from "../../utils/rootNote";
 import { countWords } from "../../utils/text";
+import { folderForContext } from "../../utils/novels";
 
 // ---------------------------------------------------------------------------
 // ImportMatchModal's entire content — step 2 of the update-import flow:
@@ -28,6 +29,7 @@ export class ImportMatchFormElement extends HTMLElement {
   private deleteListEl!: HTMLElement;
   private textMode: UpdateTextMode = "import";
   private textModeWarningEl!: HTMLElement;
+  private novelFolder!: string;
 
   configure(app: App, plugin: NovelStructurePlugin, parsed: ParsedImport, docxBasename: string, closeModal: () => void): this {
     this.app = app;
@@ -36,8 +38,9 @@ export class ImportMatchFormElement extends HTMLElement {
     this.docxBasename = docxBasename;
     this.closeModal = closeModal;
 
-    const root = findRootNote(this.app, this.plugin.settings);
-    this.existingFiles = getUpdatableStructureFiles(this.app, this.plugin.settings, root);
+    this.novelFolder = folderForContext(this.app, this.plugin.settings);
+    const root = findRootNote(this.app, this.novelFolder);
+    this.existingFiles = getUpdatableStructureFiles(this.app, this.plugin.settings, this.novelFolder, root);
     const result = computeAutoMatches(this.app, this.parsed.nodes, this.existingFiles);
     this.autoMatches = result.matches;
     this.duplicateOf = result.duplicateOf;
@@ -91,14 +94,14 @@ export class ImportMatchFormElement extends HTMLElement {
     this.empty();
     this.createEl("h2", { text: `Update import: "${this.docxBasename}"` });
 
-    const root = findRootNote(this.app, this.plugin.settings);
+    const root = findRootNote(this.app, this.novelFolder);
     const rootLine = this.createEl("p");
     if (root) {
       const rootFm = this.app.metadataCache.getFileCache(root)?.frontmatter;
       rootLine.setText(`Attached to root note: "${rootFm?.title || root.basename}".`);
     } else {
       rootLine.setText(
-        `No root note exists yet in "${this.plugin.settings.structureFolder}" – one will be created automatically titled "${this.docxBasename}".`
+        `No root note exists yet in "${this.novelFolder}" – one will be created automatically titled "${this.docxBasename}".`
       );
       rootLine.style.color = "var(--text-muted)";
     }
@@ -206,9 +209,9 @@ export class ImportMatchFormElement extends HTMLElement {
             btn.setButtonText("Applying…").setDisabled(true);
             this.closeModal();
 
-            let rootFile = findRootNote(this.app, this.plugin.settings);
+            let rootFile = findRootNote(this.app, this.novelFolder);
             if (!rootFile) {
-              rootFile = await createRootNote(this.app, this.plugin.settings, this.docxBasename, "", null);
+              rootFile = await createRootNote(this.app, this.plugin.settings, this.novelFolder, this.docxBasename, "", null);
               new Notice(`Root note "${rootFile.basename}" created automatically.`);
             }
 
@@ -217,6 +220,7 @@ export class ImportMatchFormElement extends HTMLElement {
             const result = await applyUpdateImport(
               this.app,
               this.plugin.settings,
+              this.novelFolder,
               this.parsed,
               finalMatches,
               renamableIndices,

@@ -1,6 +1,7 @@
 import { App, TFile } from "obsidian";
 import { NovelStructureSettings, STRUCTURE_TYPES, TodoEntry } from "../types";
 import { extractLinkBasename, isStructureFile } from "./files";
+import { folderForContext } from "./novels";
 import { findRootNote } from "./rootNote";
 import { readTodosForFile } from "./todos";
 
@@ -89,8 +90,12 @@ function linksToTitles(links: string[] | undefined): string[] {
   return (links ?? []).map((l) => extractLinkBasename(l) ?? l);
 }
 
-export async function buildStructureExportRows(app: App, settings: NovelStructureSettings): Promise<StructureExportRow[]> {
-  const files = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings));
+export async function buildStructureExportRows(
+  app: App,
+  settings: NovelStructureSettings,
+  folder: string = folderForContext(app, settings)
+): Promise<StructureExportRow[]> {
+  const files = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(folder));
   files.sort((a, b) => {
     const fa = app.metadataCache.getFileCache(a)?.frontmatter;
     const fb = app.metadataCache.getFileCache(b)?.frontmatter;
@@ -130,8 +135,12 @@ export async function buildStructureExportRows(app: App, settings: NovelStructur
   return rows;
 }
 
-export async function buildStructureExportCsv(app: App, settings: NovelStructureSettings): Promise<string> {
-  const rows = await buildStructureExportRows(app, settings);
+export async function buildStructureExportCsv(
+  app: App,
+  settings: NovelStructureSettings,
+  folder: string = folderForContext(app, settings)
+): Promise<string> {
+  const rows = await buildStructureExportRows(app, settings, folder);
 
   const csvRows = rows.map((r) =>
     [
@@ -168,12 +177,16 @@ export async function buildStructureExportCsv(app: App, settings: NovelStructure
 
 /** Writes (or overwrites, if run before) the export CSV into the structure
  * folder, named after the book, and returns it. */
-export async function exportStructureToCsv(app: App, settings: NovelStructureSettings): Promise<TFile> {
-  const csv = await buildStructureExportCsv(app, settings);
-  const root = findRootNote(app, settings);
+export async function exportStructureToCsv(
+  app: App,
+  settings: NovelStructureSettings,
+  folder: string = folderForContext(app, settings)
+): Promise<TFile> {
+  const csv = await buildStructureExportCsv(app, settings, folder);
+  const root = findRootNote(app, folder);
   const title = root ? app.metadataCache.getFileCache(root)?.frontmatter?.title || root.basename : "Novel";
   const safeTitle = String(title).replace(/[\\/:*?"<>|#^[\]]/g, "");
-  const path = `${settings.structureFolder}/${safeTitle} - Export.csv`;
+  const path = `${folder}/${safeTitle} - Export.csv`;
 
   const existing = app.vault.getAbstractFileByPath(path);
   if (existing instanceof TFile) {

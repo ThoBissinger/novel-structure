@@ -259,11 +259,11 @@ export async function parseDocx(
 export async function writeStructureTree(
   app: App,
   settings: NovelStructureSettings,
+  folder: string,
   parsed: ParsedImport,
   rootFileName: string | null,
   importText: boolean = true
 ): Promise<number> {
-  const folder = settings.structureFolder;
   if (!(await app.vault.adapter.exists(folder))) {
     await app.vault.createFolder(folder);
   }
@@ -307,7 +307,7 @@ export async function writeStructureTree(
     stack.push({ level: node.level, fileName });
   }
 
-  await updateStructureMetadata(app, settings);
+  await updateStructureMetadata(app, settings, folder);
 
   new Notice(`Import complete: ${filesCreated} files created in "${folder}".`);
   return filesCreated;

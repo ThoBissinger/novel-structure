@@ -19,6 +19,7 @@ import { defineCompletedPrivateSectionElement } from "./classes/elements/Complet
 import { defineConfirmDialogElement } from "./classes/elements/ConfirmDialogElement";
 import { defineStatusFormElement } from "./classes/elements/StatusFormElement";
 import { defineHeadingMappingFormElement } from "./classes/elements/HeadingMappingFormElement";
+import { defineStructureCanvasLayoutFormElement } from "./classes/elements/StructureCanvasLayoutFormElement";
 import { defineQuickTodoFormElement } from "./classes/elements/QuickTodoFormElement";
 import { defineRootNoteFormElement } from "./classes/elements/RootNoteFormElement";
 import { defineMetadataFormElement } from "./classes/elements/MetadataFormElement";
@@ -69,6 +70,7 @@ import { McpHttpServer } from "./mcp/server";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
 import { LocationOverviewModal } from "./classes/modals/LocationOverviewModal";
 import { exportStructureToCsv } from "./utils/exportCsv";
+import { StructureCanvasLayoutModal } from "./classes/modals/StructureCanvasLayoutModal";
 import { DailyPlannerModal } from "./classes/modals/DailyPlannerModal";
 import { DocxPickModal } from "./classes/modals/DocxPickModal";
 import { MetadataEditorModal } from "./classes/modals/MetadataEditorModal";
@@ -88,6 +90,7 @@ import { StructureView } from "./classes/views/StructureView";
 import { WeeklyView } from "./classes/views/WeeklyView";
 import { splitBody } from "./utils/noteBody";
 import { findRootNote, updateStructureMetadata } from "./utils/rootNote";
+import { folderForContext } from "./utils/novels";
 import {
   getThreadDevelopmentForScene,
   isThreadFile,
@@ -187,6 +190,7 @@ export default class NovelStructurePlugin extends Plugin {
     defineConfirmDialogElement();
     defineStatusFormElement();
     defineHeadingMappingFormElement();
+    defineStructureCanvasLayoutFormElement();
     defineQuickTodoFormElement();
     defineRootNoteFormElement();
     defineMetadataFormElement();
@@ -327,8 +331,15 @@ export default class NovelStructurePlugin extends Plugin {
       id: "novel-structure-regenerate-threads-base",
       name: "Regenerate Threads base",
       callback: () => {
-        regenerateThreadsBase(this.app, this.settings).then(() => new Notice("Threads.base regenerated."));
+        const folder = folderForContext(this.app, this.settings, this.app.workspace.getActiveFile());
+        regenerateThreadsBase(this.app, folder).then(() => new Notice("Threads.base regenerated."));
       },
+    });
+
+    this.addCommand({
+      id: "novel-structure-regenerate-structure-canvas",
+      name: "Regenerate structure canvas",
+      callback: () => this.regenerateStructureCanvas(),
     });
 
     this.addCommand({
@@ -510,16 +521,22 @@ export default class NovelStructurePlugin extends Plugin {
       id: "novel-structure-root-note",
       name: "Create/edit novel root note",
       callback: () => {
-        const existing = findRootNote(this.app, this.settings);
+        const existing = findRootNote(this.app, folderForContext(this.app, this.settings));
         new RootNoteModal(this.app, this, existing, () => {}).open();
       },
     });
 
+    // A created/deleted file's own novel isn't cheaply knowable ahead of
+    // time (it might not even be a structure file itself, e.g. deleting a
+    // sibling note that used to be this scene's "previous"), so this just
+    // recomputes every registered novel — updateStructureMetadata's own
+    // diff-before-write short-circuiting makes that cheap once nothing
+    // actually changed.
     this.registerEvent(
       this.app.vault.on("create", (file) => {
         if (!this.app.workspace.layoutReady) return;
         if (file instanceof TFile && file.extension === "md") {
-          updateStructureMetadata(this.app, this.settings);
+          this.settings.novels.forEach((n) => updateStructureMetadata(this.app, this.settings, n.folder));
         }
       })
     );
@@ -527,7 +544,7 @@ export default class NovelStructurePlugin extends Plugin {
       this.app.vault.on("delete", (file) => {
         if (!this.app.workspace.layoutReady) return;
         if (file instanceof TFile && file.extension === "md") {
-          updateStructureMetadata(this.app, this.settings);
+          this.settings.novels.forEach((n) => updateStructureMetadata(this.app, this.settings, n.folder));
         }
       })
     );
@@ -574,6 +591,12 @@ export default class NovelStructurePlugin extends Plugin {
       );
       menu.addItem((item) =>
         item.setTitle("Narrative chart").setIcon("activity").onClick(() => this.activateNarrativeChartView())
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle("Regenerate structure canvas")
+          .setIcon("git-branch")
+          .onClick(() => this.regenerateStructureCanvas())
       );
       menu.showAtMouseEvent(evt);
     });
@@ -972,6 +995,23 @@ export default class NovelStructurePlugin extends Plugin {
     }
   }
 
+  /** Nothing in StructureView/NovelBoardView/NarrativeChartView's own event
+   * registrations notices a settings-only change (switching the active
+   * novel, editing the novels list, creating a brand new novel) — call this
+   * after any of those so every currently open leaf of the three re-renders
+   * against the new state instead of only the one the user interacted with. */
+  refreshAllNovelViews(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STRUCTURE)) {
+      if (leaf.view instanceof StructureView) leaf.view.refresh();
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_BOARD)) {
+      if (leaf.view instanceof NovelBoardView) leaf.view.refresh();
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_NARRATIVE_CHART)) {
+      if (leaf.view instanceof NarrativeChartView) leaf.view.refresh();
+    }
+  }
+
   async activateStructureView() {
     const { workspace } = this.app;
     let leaf = workspace.getLeavesOfType(VIEW_TYPE_STRUCTURE)[0];
@@ -1032,6 +1072,14 @@ export default class NovelStructurePlugin extends Plugin {
     workspace.revealLeaf(leaf);
   }
 
+  /** Shared by the command and the "Novel" ribbon menu item — opens the
+   * row/column-per-level picker, which does the actual generation once
+   * confirmed (see StructureCanvasLayoutModal/structureCanvas.ts). */
+  regenerateStructureCanvas() {
+    const folder = folderForContext(this.app, this.settings, this.app.workspace.getActiveFile());
+    new StructureCanvasLayoutModal(this.app, this, folder).open();
+  }
+
   async updateWordAndPageCount(file: TFile) {
     const content = await this.app.vault.read(file);
     // strip the frontmatter block, then the "## Notes" section — only the
@@ -1063,11 +1111,22 @@ export default class NovelStructurePlugin extends Plugin {
       fm.page_count = pages;
     });
 
-    await updateStructureMetadata(this.app, this.settings);
+    await updateStructureMetadata(this.app, this.settings, folderForContext(this.app, this.settings, file));
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const raw = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, raw);
+    // One-time migration: pre-multi-novel installs stored a single
+    // `structureFolder: string` instead of `novels`/`activeNovelFolder`.
+    // Seed a single-entry novels list from it (or "Novel" on a genuinely
+    // fresh install) so every existing vault keeps working unchanged.
+    if (this.settings.novels.length === 0) {
+      const legacyFolder = (raw as { structureFolder?: string } | null)?.structureFolder || "Novel";
+      this.settings.novels = [{ folder: legacyFolder }];
+      this.settings.activeNovelFolder = legacyFolder;
+      await this.saveSettings();
+    }
     // Never user-typed — generated once on first load and kept until the
     // user hits "Regenerate" in settings (see NovelStructureSettingTab).
     if (!this.settings.mcpServerToken) {

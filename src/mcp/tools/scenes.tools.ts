@@ -2,10 +2,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { STATUS_TYPES, StatusType, STRUCTURE_TYPES, StructureType } from "../../types";
 import { isStructureFile } from "../../utils/files";
+import { folderForContext } from "../../utils/novels";
 import { getSceneContext } from "../../utils/sceneContext";
 import type { ToolContext } from "../toolContext";
 import { errorResult, jsonResult } from "../toolResult";
-import { resolveFile } from "./shared";
+import { novelFolderParam, resolveFile } from "./shared";
 
 export function registerSceneTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
@@ -23,13 +24,15 @@ export function registerSceneTools(server: McpServer, ctx: ToolContext): void {
           .enum(STATUS_TYPES as [StatusType, ...StatusType[]])
           .optional()
           .describe("Only nodes with this status."),
+        novel_folder: novelFolderParam,
       },
     },
-    async ({ type, status }) => {
+    async ({ type, status, novel_folder }) => {
       const { app, settings } = ctx.plugin;
+      const folder = novel_folder ?? folderForContext(app, settings);
       const rows = app.vault
         .getFiles()
-        .filter((f) => isStructureFile(app, f, settings))
+        .filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(folder))
         .map((f) => {
           const fm = app.metadataCache.getFileCache(f)?.frontmatter ?? {};
           return {

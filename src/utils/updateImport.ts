@@ -51,11 +51,12 @@ const WRITE_CONCURRENCY = 8;
 export function getUpdatableStructureFiles(
   app: App,
   settings: NovelStructureSettings,
+  folder: string,
   rootFile: TFile | null
 ): TFile[] {
   return app.vault
     .getFiles()
-    .filter((f) => isStructureFile(app, f, settings) && f.path !== rootFile?.path);
+    .filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(folder) && f.path !== rootFile?.path);
 }
 
 export interface AutoMatchResult {
@@ -142,6 +143,7 @@ interface PlanEntry {
 export async function applyUpdateImport(
   app: App,
   settings: NovelStructureSettings,
+  folder: string,
   parsed: ParsedImport,
   matches: Map<number, TFile>,
   renamableIndices: Set<number>,
@@ -149,8 +151,6 @@ export async function applyUpdateImport(
   rootFileName: string | null,
   textMode: UpdateTextMode = "import"
 ): Promise<UpdateImportResult> {
-  const folder = settings.structureFolder;
-
   // Delete first so freed-up names are available to renamed/new files below.
   for (const file of filesToDelete) {
     await app.fileManager.trashFile(file);
@@ -257,7 +257,7 @@ export async function applyUpdateImport(
     }
   });
 
-  await updateStructureMetadata(app, settings);
+  await updateStructureMetadata(app, settings, folder);
 
   return { created, updated, deleted: filesToDelete.length };
 }

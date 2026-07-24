@@ -3,6 +3,7 @@ import { NovelStructureSettings } from "../types";
 import { CharacterSceneRole, linkCharacterToScene } from "./characters";
 import { uniqueFileName } from "./files";
 import { linkLocationToScene } from "./locations";
+import { folderForContext } from "./novels";
 
 // ---------------------------------------------------------------------------
 // A "candidate" is a name an MCP-driven assistant noticed while reading a
@@ -30,8 +31,8 @@ export interface PendingCandidate {
   note: string;
 }
 
-function pendingFolderPath(settings: NovelStructureSettings): string {
-  return `${settings.structureFolder}/Pending`;
+function pendingFolderPath(folder: string): string {
+  return `${folder}/Pending`;
 }
 
 function isPendingCandidateFile(app: App, file: TFile, kind: PendingCandidateKind): boolean {
@@ -53,7 +54,9 @@ export async function createPendingCandidate(
   role: CharacterSceneRole | null,
   note: string
 ): Promise<TFile> {
-  const folder = pendingFolderPath(settings);
+  const sourceFile = sourceScene ? app.vault.getAbstractFileByPath(sourceScene) : null;
+  const novelFolder = folderForContext(app, settings, sourceFile instanceof TFile ? sourceFile : null);
+  const folder = pendingFolderPath(novelFolder);
   const existing = listPendingCandidates(app, settings, kind).find((c) => c.name === name);
   if (existing) return existing.file;
 
@@ -73,7 +76,7 @@ export async function createPendingCandidate(
 }
 
 export function listPendingCandidates(app: App, settings: NovelStructureSettings, kind: PendingCandidateKind): PendingCandidate[] {
-  const folder = pendingFolderPath(settings);
+  const folder = pendingFolderPath(folderForContext(app, settings));
   return app.vault
     .getMarkdownFiles()
     .filter((f) => f.path.startsWith(`${folder}/`) && isPendingCandidateFile(app, f, kind))

@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { StructureType } from "../../types";
 import { extractLinkBasename, isStructureFile, sortFilesByOrder } from "../../utils/files";
+import { folderForContext, renderNovelSwitcher, syncNovelSwitcher } from "../../utils/novels";
 import { findAllRootNotes } from "../../utils/rootNote";
 import { renderBoardChildren } from "./BoardCardElement";
 
@@ -29,6 +30,7 @@ export class BoardViewElement extends HTMLElement {
   private expandedPaths: Set<string> = new Set();
   private treeBox!: HTMLElement;
   private hintEl!: HTMLElement;
+  private novelSwitcher: HTMLSelectElement | null = null;
 
   configure(app: App, plugin: NovelStructurePlugin): this {
     this.app = app;
@@ -43,6 +45,8 @@ export class BoardViewElement extends HTMLElement {
   }
 
   private build() {
+    this.novelSwitcher = renderNovelSwitcher(this, this.plugin, () => this.refresh());
+
     const bar = this.createEl("div", { cls: "novel-board-toolbar" });
     bar.createEl("span", { text: "Show down to:", cls: "novel-board-toolbar-label" });
     const select = bar.createEl("select", { cls: "novel-board-toolbar-select" });
@@ -64,16 +68,20 @@ export class BoardViewElement extends HTMLElement {
    * or a depth-selector change. Card expand/collapse and StructureNoteEditor
    * field edits never call this — see BoardCardElement. */
   refresh() {
+    syncNovelSwitcher(this.novelSwitcher, this.plugin);
     this.treeBox.empty();
     const settings = this.plugin.settings;
-    const root = findAllRootNotes(this.app, settings)[0] ?? null;
+    const folder = folderForContext(this.app, settings);
+    const root = findAllRootNotes(this.app, folder)[0] ?? null;
     if (!root) {
       this.hintEl.setText('No root note for this novel yet. Create one from "Open structure view" first.');
       this.hintEl.style.display = "";
       return;
     }
 
-    const allFiles = this.app.vault.getFiles().filter((f) => isStructureFile(this.app, f, settings) && f.path !== root.path);
+    const allFiles = this.app.vault
+      .getFiles()
+      .filter((f) => isStructureFile(this.app, f, settings) && f.path.startsWith(folder) && f.path !== root.path);
 
     const childrenByParent = new Map<string, TFile[]>();
     allFiles.forEach((f) => {

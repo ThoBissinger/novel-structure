@@ -10,6 +10,7 @@ import {
   DEFAULT_CHART_OPTIONS,
   layoutNarrativeChart,
 } from "../../utils/narrativeChart";
+import { folderForContext, renderNovelSwitcher } from "../../utils/novels";
 
 const TAG = "novel-narrative-chart-view-el";
 
@@ -59,7 +60,7 @@ export class NarrativeChartViewElement extends HTMLElement {
     this.empty();
     this.renderControls();
 
-    const columns = collectChartColumns(this.app, this.plugin.settings, this.options);
+    const columns = collectChartColumns(this.app, this.plugin.settings, folderForContext(this.app, this.plugin.settings), this.options);
     if (columns.length === 0) {
       const emptyText =
         this.options.mode === "events"
@@ -77,6 +78,8 @@ export class NarrativeChartViewElement extends HTMLElement {
   }
 
   private renderControls() {
+    renderNovelSwitcher(this, this.plugin, () => this.refresh());
+
     const bar = this.createDiv({ cls: "novel-narrative-controls" });
 
     const modeGroup = bar.createDiv({ cls: "novel-structure-mode-group" });

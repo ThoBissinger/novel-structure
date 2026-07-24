@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { StructureType, TodoItem } from "../../types";
 import { extractLinkBasename, fileTitle, isStructureFile, sortFilesByOrder, structureDepthIndex } from "../../utils/files";
+import { folderForContext } from "../../utils/novels";
 import { findRootNote } from "../../utils/rootNote";
 import { deadlineUrgency } from "../../utils/todos";
 import { TodoRowOptions } from "../modals/todoRowView";
@@ -249,7 +250,8 @@ export class TodoManuscriptColumnElement extends HTMLElement {
 
   private drawTree(container: HTMLElement, todosByPath: Map<string, TodoItem[]>) {
     const settings = this.plugin.settings;
-    const root = findRootNote(this.app, settings);
+    const folder = folderForContext(this.app, settings);
+    const root = findRootNote(this.app, folder);
     if (!root) {
       [...todosByPath.entries()]
         .map(([path, list]) => ({ path, list, ...this.sceneMeta(path) }))
@@ -272,7 +274,7 @@ export class TodoManuscriptColumnElement extends HTMLElement {
 
     const allFiles = this.app.vault
       .getFiles()
-      .filter((f) => isStructureFile(this.app, f, settings) && f.path !== root.path);
+      .filter((f) => isStructureFile(this.app, f, settings) && f.path.startsWith(folder) && f.path !== root.path);
     const childrenByParent = new Map<string, TFile[]>();
     allFiles.forEach((f) => {
       const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;

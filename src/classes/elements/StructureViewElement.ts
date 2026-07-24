@@ -2,6 +2,7 @@ import { Setting, TFile } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { extractLinkBasename, isStructureFile, sortFilesByOrder } from "../../utils/files";
+import { folderForContext, renderNovelSwitcher, syncNovelSwitcher } from "../../utils/novels";
 import { findAllRootNotes } from "../../utils/rootNote";
 import { RootNoteModal } from "../modals/RootNoteModal";
 import { createStructureNodeElement, StructureNodeElement } from "./StructureNodeElement";
@@ -37,6 +38,7 @@ export class StructureViewElement extends HTMLElement {
   private orphansHint!: HTMLElement;
   private orphansListBox!: HTMLElement;
   private currentRoot: TFile | null = null;
+  private novelSwitcher: HTMLSelectElement | null = null;
 
   configure(app: App, plugin: NovelStructurePlugin, closeView: () => void): this {
     this.app = app;
@@ -52,6 +54,8 @@ export class StructureViewElement extends HTMLElement {
   }
 
   private build() {
+    this.novelSwitcher = renderNovelSwitcher(this, this.plugin, () => this.refresh());
+
     this.warningEl = this.createEl("p");
     this.warningEl.style.color = "var(--text-warning, #e0a800)";
 
@@ -97,20 +101,24 @@ export class StructureViewElement extends HTMLElement {
    * Re-derives the tree from disk/metadataCache and reconciles — cheap
    * unless something actually changed, see this file's top comment. */
   refresh() {
-    const allRoots = findAllRootNotes(this.app, this.plugin.settings);
+    syncNovelSwitcher(this.novelSwitcher, this.plugin);
+    const folder = folderForContext(this.app, this.plugin.settings);
+    const allRoots = findAllRootNotes(this.app, folder);
     const root = allRoots[0] ?? null;
     this.currentRoot = root;
 
     if (allRoots.length > 1) {
       this.warningEl.setText(
-        `⚠️ Found ${allRoots.length} root notes – only "${root?.basename}" is currently used. Multiple novels per folder aren't supported yet.`
+        `⚠️ Found ${allRoots.length} root notes in "${folder}" – only "${root?.basename}" is currently used. Move the extra one(s) to a separate novel folder instead.`
       );
       this.warningEl.style.display = "";
     } else {
       this.warningEl.style.display = "none";
     }
 
-    const allStructureFiles = this.app.vault.getFiles().filter((f) => isStructureFile(this.app, f, this.plugin.settings));
+    const allStructureFiles = this.app.vault
+      .getFiles()
+      .filter((f) => isStructureFile(this.app, f, this.plugin.settings) && f.path.startsWith(folder));
 
     if (!root) {
       this.noRootBox.style.display = "";

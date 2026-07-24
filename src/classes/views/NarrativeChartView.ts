@@ -15,6 +15,12 @@ export class NarrativeChartView extends ItemView {
   plugin: NovelStructurePlugin;
   private contentElement: NarrativeChartViewElement | null = null;
 
+  /** Called after settings change externally (novel switcher, Settings tab,
+   * a new novel being created). */
+  refresh(): void {
+    this.contentElement?.refresh();
+  }
+
   constructor(leaf: WorkspaceLeaf, plugin: NovelStructurePlugin) {
     super(leaf);
     this.plugin = plugin;

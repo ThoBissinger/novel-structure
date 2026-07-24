@@ -17,19 +17,80 @@ export class NovelStructureSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("h2", { text: "Novel Structure – Settings" });
 
-    new Setting(containerEl)
-      .setName("Structure folder")
-      .setDesc("The vault folder that holds all structure and character notes.")
-      .addText((text) => {
-        text.setValue(this.plugin.settings.structureFolder).onChange(async (v) => {
-          this.plugin.settings.structureFolder = v.trim() || DEFAULT_SETTINGS.structureFolder;
-          await this.plugin.saveSettings();
-        });
-        new FolderSuggest(this.app, text.inputEl, async (folder) => {
-          this.plugin.settings.structureFolder = folder.path;
-          await this.plugin.saveSettings();
-        });
-      });
+    containerEl.createEl("h3", { text: "Novels" });
+    containerEl.createEl("p", {
+      text:
+        "Each novel lives in its own vault folder. The active novel is what views/commands operate " +
+        "on by default — also switchable from the Structure/Board/Narrative chart toolbars.",
+      cls: "setting-item-description",
+    });
+
+    this.plugin.settings.novels.forEach((novel, i) => {
+      const isActive = novel.folder === this.plugin.settings.activeNovelFolder;
+      const row = new Setting(containerEl)
+        .setName(isActive ? "Active" : "")
+        .addText((text) => {
+          text.setPlaceholder("Folder").setValue(novel.folder);
+          text.inputEl.style.width = "100%";
+          const commit = async (newFolder: string) => {
+            if (!newFolder || newFolder === novel.folder) return;
+            if (this.plugin.settings.activeNovelFolder === novel.folder) this.plugin.settings.activeNovelFolder = newFolder;
+            novel.folder = newFolder;
+            await this.plugin.saveSettings();
+            this.plugin.refreshAllNovelViews();
+          };
+          text.onChange((v) => commit(v.trim()));
+          new FolderSuggest(this.app, text.inputEl, (folder) => commit(folder.path));
+        })
+        .addText((text) =>
+          text
+            .setPlaceholder("Label (optional)")
+            .setValue(novel.label ?? "")
+            .onChange(async (v) => {
+              novel.label = v.trim() || undefined;
+              await this.plugin.saveSettings();
+              this.plugin.refreshAllNovelViews();
+            })
+        );
+      if (!isActive) {
+        row.addButton((btn) =>
+          btn
+            .setButtonText("Set active")
+            .setCta()
+            .onClick(async () => {
+              this.plugin.settings.activeNovelFolder = novel.folder;
+              await this.plugin.saveSettings();
+              this.plugin.refreshAllNovelViews();
+              this.display();
+            })
+        );
+      }
+      row.addButton((btn) =>
+        btn
+          .setIcon("trash")
+          .setTooltip("Remove")
+          .onClick(async () => {
+            if (this.plugin.settings.novels.length <= 1) {
+              new Notice("At least one novel must stay registered.");
+              return;
+            }
+            this.plugin.settings.novels.splice(i, 1);
+            if (this.plugin.settings.activeNovelFolder === novel.folder) {
+              this.plugin.settings.activeNovelFolder = this.plugin.settings.novels[0].folder;
+            }
+            await this.plugin.saveSettings();
+            this.plugin.refreshAllNovelViews();
+            this.display();
+          })
+      );
+    });
+
+    new Setting(containerEl).addButton((btn) =>
+      btn.setButtonText("+ Add novel").onClick(() => {
+        this.plugin.settings.novels.push({ folder: "" });
+        this.display();
+      })
+    );
 
     new Setting(containerEl)
       .setName("Words per page")

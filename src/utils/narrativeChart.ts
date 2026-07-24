@@ -69,10 +69,10 @@ interface RawColumn extends ChartColumn {
   month: number | null;
 }
 
-function collectSceneColumns(app: App, settings: NovelStructureSettings, opts: ChartOptions): RawColumn[] {
+function collectSceneColumns(app: App, settings: NovelStructureSettings, folder: string, opts: ChartOptions): RawColumn[] {
   return app.vault
     .getFiles()
-    .filter((f) => isStructureFile(app, f, settings))
+    .filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(folder))
     .filter((f) => {
       if (!opts.withTextOnly) return true;
       const fm = app.metadataCache.getFileCache(f)?.frontmatter;
@@ -97,9 +97,9 @@ function collectSceneColumns(app: App, settings: NovelStructureSettings, opts: C
  * sort last on the "story" axis); narrative position = the first scene that
  * references it via `events`/`conflicts` (threads no scene references sort
  * last on the "book" axis). */
-function collectThreadColumns(app: App, settings: NovelStructureSettings, kind: ThreadKind): RawColumn[] {
+function collectThreadColumns(app: App, settings: NovelStructureSettings, folder: string, kind: ThreadKind): RawColumn[] {
   const linkField = threadFieldNames(kind).links;
-  const structureFiles = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings));
+  const structureFiles = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(folder));
   const firstReference = new Map<string, number>();
   structureFiles.forEach((f) => {
     const fm = app.metadataCache.getFileCache(f)?.frontmatter ?? {};
@@ -114,7 +114,7 @@ function collectThreadColumns(app: App, settings: NovelStructureSettings, kind: 
 
   return app.vault
     .getMarkdownFiles()
-    .filter((f) => isThreadFile(app, f, settings, kind))
+    .filter((f) => isThreadFile(app, f, settings, kind) && f.path.startsWith(folder))
     .map((file) => {
       const fm = app.metadataCache.getFileCache(file)?.frontmatter ?? {};
       const cast = ((fm.characters as string[]) ?? [])
@@ -136,11 +136,11 @@ function collectThreadColumns(app: App, settings: NovelStructureSettings, kind: 
  * time (undated columns last, narrative order as tiebreak). After the sort,
  * characters appearing in fewer than `minAppearances` columns are dropped,
  * and columns left with an empty cast disappear entirely. */
-export function collectChartColumns(app: App, settings: NovelStructureSettings, opts: ChartOptions): ChartColumn[] {
+export function collectChartColumns(app: App, settings: NovelStructureSettings, folder: string, opts: ChartOptions): ChartColumn[] {
   const raw = (
     opts.mode === "scenes"
-      ? collectSceneColumns(app, settings, opts)
-      : collectThreadColumns(app, settings, opts.mode === "events" ? "event" : "conflict")
+      ? collectSceneColumns(app, settings, folder, opts)
+      : collectThreadColumns(app, settings, folder, opts.mode === "events" ? "event" : "conflict")
   ).filter((c) => c.cast.length > 0);
 
   raw.sort((a, b) => {

@@ -6,6 +6,7 @@ import { writeStructureTree } from "../../utils/docxImport";
 import { countWords } from "../../utils/text";
 import { createRootNote, findRootNote } from "../../utils/rootNote";
 import { structureFileTitle } from "../../utils/files";
+import { folderForContext } from "../../utils/novels";
 
 // ---------------------------------------------------------------------------
 // ImportPreviewModal's entire content — root-note attach line, word/file
@@ -42,14 +43,15 @@ export class ImportPreviewFormElement extends HTMLElement {
     this.empty();
     this.createEl("h2", { text: "Preview: this is what would be imported" });
 
-    const root = findRootNote(this.app, this.plugin.settings);
+    const novelFolder = folderForContext(this.app, this.plugin.settings);
+    const root = findRootNote(this.app, novelFolder);
     const rootLine = this.createEl("p");
     if (root) {
       const rootFm = this.app.metadataCache.getFileCache(root)?.frontmatter;
       rootLine.setText(`Will be attached to root note: "${rootFm?.title || root.basename}".`);
     } else {
       rootLine.setText(
-        `No root note exists yet in "${this.plugin.settings.structureFolder}" – one will be ` +
+        `No root note exists yet in "${novelFolder}" – one will be ` +
           `created automatically titled "${this.suggestedTitle}" (you can adjust it afterwards ` +
           `via "Create/edit novel root note").`
       );
@@ -112,12 +114,13 @@ export class ImportPreviewFormElement extends HTMLElement {
           .setDisabled(this.parsed.nodes.length === 0)
           .onClick(async () => {
             this.closeModal();
-            let rootFile = findRootNote(this.app, this.plugin.settings);
+            const targetFolder = folderForContext(this.app, this.plugin.settings);
+            let rootFile = findRootNote(this.app, targetFolder);
             if (!rootFile) {
-              rootFile = await createRootNote(this.app, this.plugin.settings, this.suggestedTitle, "", null);
+              rootFile = await createRootNote(this.app, this.plugin.settings, targetFolder, this.suggestedTitle, "", null);
               new Notice(`Root note "${rootFile.basename}" created automatically.`);
             }
-            await writeStructureTree(this.app, this.plugin.settings, this.parsed, rootFile.basename, this.importText);
+            await writeStructureTree(this.app, this.plugin.settings, targetFolder, this.parsed, rootFile.basename, this.importText);
           })
       );
   }

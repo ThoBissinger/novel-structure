@@ -8,7 +8,8 @@ import { NovelStructureSettings, STRUCTURE_TYPES, StructureType } from "../types
 
 export function isStructureFile(app: App, file: TFile, settings: NovelStructureSettings): boolean {
   const fm = app.metadataCache.getFileCache(file)?.frontmatter;
-  return !!fm && STRUCTURE_TYPES.includes(fm.type) && file.path.startsWith(settings.structureFolder);
+  if (!fm || !STRUCTURE_TYPES.includes(fm.type)) return false;
+  return settings.novels.some((n) => file.path.startsWith(n.folder));
 }
 
 /**

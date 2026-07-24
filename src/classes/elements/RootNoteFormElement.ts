@@ -1,6 +1,7 @@
 import { Notice, Setting, TFile } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
+import { folderForContext, resolveNovelFolder } from "../../utils/novels";
 import { createRootNote, findRootNote, updateRootNote, updateStructureMetadata } from "../../utils/rootNote";
 import { FolderSuggest } from "../FolderSuggest";
 
@@ -33,7 +34,7 @@ export class RootNoteFormElement extends HTMLElement {
     this.titleValue = fm?.title ?? "";
     this.author = fm?.author ?? "";
     this.targetWordCountText = fm?.target_word_count ? String(fm.target_word_count) : "";
-    this.folder = existingFile ? existingFile.parent?.path ?? "/" : plugin.settings.structureFolder;
+    this.folder = existingFile ? existingFile.parent?.path ?? "/" : folderForContext(app, plugin.settings);
     return this;
   }
 
@@ -87,7 +88,7 @@ export class RootNoteFormElement extends HTMLElement {
         .setName("Folder")
         .setDesc(
           "All notes for this novel (sections, chapters, scenes, characters, todos) will live " +
-            "here. This also switches the plugin's active structure folder to this path."
+            "here. This registers it as a new novel and makes it the active one."
         )
         .addText((t) => {
           t.setValue(this.folder).onChange((v) => (this.folder = v));
@@ -109,22 +110,25 @@ export class RootNoteFormElement extends HTMLElement {
 
           if (this.existingFile) {
             await updateRootNote(this.app, this.existingFile, this.titleValue.trim(), this.author.trim(), targetWordCount);
+            const folder = resolveNovelFolder(this.app, this.plugin.settings, this.existingFile) ?? folderForContext(this.app, this.plugin.settings);
+            await updateStructureMetadata(this.app, this.plugin.settings, folder);
           } else {
-            const folder = this.folder.trim() || this.plugin.settings.structureFolder;
-            const existingRootInFolder = findRootNote(this.app, { ...this.plugin.settings, structureFolder: folder });
+            const folder = this.folder.trim() || folderForContext(this.app, this.plugin.settings);
+            const existingRootInFolder = findRootNote(this.app, folder);
             if (existingRootInFolder) {
               new Notice(
                 `Heads up: "${folder}" already has a root note ("${existingRootInFolder.basename}"). ` +
                   `Creating another one here will cause two root notes in the same folder.`
               );
             }
-            if (folder !== this.plugin.settings.structureFolder) {
-              this.plugin.settings.structureFolder = folder;
-              await this.plugin.saveSettings();
+            if (!this.plugin.settings.novels.some((n) => n.folder === folder)) {
+              this.plugin.settings.novels.push({ folder });
             }
-            await createRootNote(this.app, this.plugin.settings, this.titleValue.trim(), this.author.trim(), targetWordCount);
+            this.plugin.settings.activeNovelFolder = folder;
+            await this.plugin.saveSettings();
+            await createRootNote(this.app, this.plugin.settings, folder, this.titleValue.trim(), this.author.trim(), targetWordCount);
+            this.plugin.refreshAllNovelViews();
           }
-          await updateStructureMetadata(this.app, this.plugin.settings);
           this.onSaved();
         })
     );

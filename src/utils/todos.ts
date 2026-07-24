@@ -3,6 +3,7 @@ import type NovelStructurePlugin from "../main";
 import { GoogleTaskOverride, Priority, PRIORITY_ORDER, TodoEntry, TodoItem, TodoStatus, TodoSubtask } from "../types";
 import { isStructureFile } from "./files";
 import { generateTodoId, readTodos, splitFrontmatterAndBody, todosNeedRewrite, writeTodos } from "./noteBody";
+import { folderForContext } from "./novels";
 import { parsePrivateTodos, serializePrivateTodos } from "./privateTodoStore";
 
 // ---------------------------------------------------------------------------
@@ -16,8 +17,10 @@ import { parsePrivateTodos, serializePrivateTodos } from "./privateTodoStore";
 // one-off migration step to run.
 // ---------------------------------------------------------------------------
 
-export function privateTodoPath(plugin: NovelStructurePlugin): string {
-  return `${plugin.settings.structureFolder}/${plugin.settings.privateTodoFile}`;
+/** Private todos live in one JSON file per novel — `folder` defaults to
+ * whichever novel is currently active (see utils/novels.ts). */
+export function privateTodoPath(plugin: NovelStructurePlugin, folder: string = folderForContext(plugin.app, plugin.settings)): string {
+  return `${folder}/${plugin.settings.privateTodoFile}`;
 }
 
 /** Whether a changed file could actually affect collectTodos()'s result —
@@ -27,17 +30,17 @@ export function privateTodoPath(plugin: NovelStructurePlugin): string {
  * for a full vault.getMarkdownFiles() + per-file read on literally any
  * file changing anywhere in the vault. */
 export function isTodoRelevantFile(app: App, file: TFile, plugin: NovelStructurePlugin): boolean {
-  if (file.path === privateTodoPath(plugin)) return true;
+  if (plugin.settings.novels.some((n) => file.path === privateTodoPath(plugin, n.folder))) return true;
   return file.extension === "md" && isStructureFile(app, file, plugin.settings);
 }
 
-export async function ensurePrivateTodoFile(plugin: NovelStructurePlugin): Promise<TFile> {
-  const path = privateTodoPath(plugin);
+export async function ensurePrivateTodoFile(plugin: NovelStructurePlugin, folder: string = folderForContext(plugin.app, plugin.settings)): Promise<TFile> {
+  const path = privateTodoPath(plugin, folder);
   const existing = plugin.app.vault.getAbstractFileByPath(path);
   if (existing instanceof TFile) return existing;
 
-  if (!(await plugin.app.vault.adapter.exists(plugin.settings.structureFolder))) {
-    await plugin.app.vault.createFolder(plugin.settings.structureFolder);
+  if (!(await plugin.app.vault.adapter.exists(folder))) {
+    await plugin.app.vault.createFolder(folder);
   }
   return plugin.app.vault.create(path, serializePrivateTodos([]));
 }
@@ -51,10 +54,11 @@ export async function buildTodoTargets(
   app: App,
   plugin: NovelStructurePlugin
 ): Promise<{ file: TFile; label: string }[]> {
-  const privateFile = await ensurePrivateTodoFile(plugin);
+  const folder = folderForContext(app, plugin.settings);
+  const privateFile = await ensurePrivateTodoFile(plugin, folder);
   const scenes = app.vault
     .getFiles()
-    .filter((f) => isStructureFile(app, f, plugin.settings))
+    .filter((f) => isStructureFile(app, f, plugin.settings) && f.path.startsWith(folder))
     .map((file) => {
       const fm = app.metadataCache.getFileCache(file)?.frontmatter;
       return { file, label: (fm?.title as string) || file.basename, order: (fm?.global_order as number) ?? 0 };
@@ -82,29 +86,33 @@ export async function migratePrivateTodoStoreIfNeeded(plugin: NovelStructurePlug
   if (!plugin.settings.privateTodoFile.endsWith(".md")) return;
 
   const app = plugin.app;
-  const oldPath = `${plugin.settings.structureFolder}/${plugin.settings.privateTodoFile}`;
-  const newFileName = plugin.settings.privateTodoFile.replace(/\.md$/, ".json");
-  const newPath = `${plugin.settings.structureFolder}/${newFileName}`;
+  const oldFileName = plugin.settings.privateTodoFile;
+  const newFileName = oldFileName.replace(/\.md$/, ".json");
 
-  let migratedEntries: TodoEntry[] = [];
-  const oldFile = app.vault.getAbstractFileByPath(oldPath);
-  if (oldFile instanceof TFile) {
-    const content = await app.vault.read(oldFile);
-    migratedEntries = readTodos(splitFrontmatterAndBody(content).body);
-    const backupPath = `${oldPath}.migrated-backup`;
-    await app.fileManager.renameFile(oldFile, backupPath);
-    new Notice(
-      `Private todos moved to ${newFileName}. The old note was kept as a backup (${backupPath.split("/").pop()}).`
-    );
-  } else if (await app.vault.adapter.exists(oldPath)) {
-    console.warn(
-      "[novel-structure] private todo migration: old file exists on disk but not yet in the vault index — deferring to next load."
-    );
-    return;
-  }
+  for (const { folder } of plugin.settings.novels) {
+    const oldPath = `${folder}/${oldFileName}`;
+    const newPath = `${folder}/${newFileName}`;
 
-  if (!(await app.vault.adapter.exists(newPath))) {
-    await app.vault.create(newPath, serializePrivateTodos(migratedEntries));
+    let migratedEntries: TodoEntry[] = [];
+    const oldFile = app.vault.getAbstractFileByPath(oldPath);
+    if (oldFile instanceof TFile) {
+      const content = await app.vault.read(oldFile);
+      migratedEntries = readTodos(splitFrontmatterAndBody(content).body);
+      const backupPath = `${oldPath}.migrated-backup`;
+      await app.fileManager.renameFile(oldFile, backupPath);
+      new Notice(
+        `Private todos moved to ${newFileName}. The old note was kept as a backup (${backupPath.split("/").pop()}).`
+      );
+    } else if (await app.vault.adapter.exists(oldPath)) {
+      console.warn(
+        "[novel-structure] private todo migration: old file exists on disk but not yet in the vault index — deferring to next load."
+      );
+      continue;
+    }
+
+    if (!(await app.vault.adapter.exists(newPath))) {
+      await app.vault.create(newPath, serializePrivateTodos(migratedEntries));
+    }
   }
 
   plugin.settings.privateTodoFile = newFileName;
@@ -183,15 +191,18 @@ export async function readTodosForFile(app: App, file: TFile): Promise<TodoEntry
  *    `vault.read()`, which is the actual expensive part.
  *  - the remaining reads happen in parallel instead of one `await` per
  *    file in a loop. */
-export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoItem[]> {
+export async function collectTodos(plugin: NovelStructurePlugin, folder?: string): Promise<TodoItem[]> {
   const collectStart = Date.now();
   const app = plugin.app;
-  const privatePath = privateTodoPath(plugin);
+  const novelFolder = folder ?? folderForContext(app, plugin.settings);
+  const privatePath = privateTodoPath(plugin, novelFolder);
   // The private file is JSON, not markdown, so getMarkdownFiles() never
   // returns it — resolve it separately instead of matching by path inside
   // that filter.
   const privateFile = app.vault.getAbstractFileByPath(privatePath);
-  const structureFiles = app.vault.getMarkdownFiles().filter((f) => isStructureFile(app, f, plugin.settings));
+  const structureFiles = app.vault
+    .getMarkdownFiles()
+    .filter((f) => isStructureFile(app, f, plugin.settings) && f.path.startsWith(novelFolder));
 
   // The metadataCache skip-filter below only means anything for markdown
   // files — Obsidian doesn't parse listItems/frontmatter for a non-markdown

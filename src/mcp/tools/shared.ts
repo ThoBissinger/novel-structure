@@ -1,4 +1,5 @@
 import { TFile } from "obsidian";
+import { z } from "zod";
 import type { ToolContext } from "../toolContext";
 
 /** Resolves a vault-relative path to a TFile, or null if it doesn't exist /
@@ -9,3 +10,11 @@ export function resolveFile(ctx: ToolContext, path: string): TFile | null {
   const f = ctx.plugin.app.vault.getAbstractFileByPath(path);
   return f instanceof TFile ? f : null;
 }
+
+/** Shared input param for every vault-wide list/create tool that has no
+ * specific file to resolve a novel from — defaults to the active novel
+ * (see utils/novels.ts folderForContext) when omitted. */
+export const novelFolderParam = z
+  .string()
+  .optional()
+  .describe("Which novel's folder to scope this to — defaults to the currently active novel.");

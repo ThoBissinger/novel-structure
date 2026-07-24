@@ -13,7 +13,7 @@ import {
 } from "../../utils/todos";
 import type { ToolContext } from "../toolContext";
 import { errorResult, jsonResult } from "../toolResult";
-import { resolveFile } from "./shared";
+import { novelFolderParam, resolveFile } from "./shared";
 
 const deadlineSchema = z
   .string()
@@ -42,10 +42,11 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
         status: z.enum(TODO_STATUS_ORDER as [TodoStatus, ...TodoStatus[]]).optional(),
         priority: z.enum(PRIORITY_ORDER as [Priority, ...Priority[]]).optional(),
         source: z.enum(["scene", "private"]).optional(),
+        novel_folder: novelFolderParam,
       },
     },
-    async ({ status, priority, source }) => {
-      const todos = await collectTodos(ctx.plugin);
+    async ({ status, priority, source, novel_folder }) => {
+      const todos = await collectTodos(ctx.plugin, novel_folder);
       const filtered = todos.filter(
         (t) =>
           (!status || t.status === status) &&

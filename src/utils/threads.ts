@@ -2,6 +2,7 @@ import { App, TFile } from "obsidian";
 import { NovelStructureSettings } from "../types";
 import { extractLinkBasename, isStructureFile } from "./files";
 import { readThreadDevelopment, removeThreadDevelopment, splitFrontmatterAndBody, writeThreadDevelopment } from "./noteBody";
+import { folderForContext, resolveNovelFolder } from "./novels";
 
 // ---------------------------------------------------------------------------
 // "Threads" — the umbrella for things that run through the whole novel and
@@ -54,8 +55,8 @@ export function threadFieldNames(kind: ThreadKind): ThreadFieldNames {
   }
 }
 
-export function threadsFolderPath(settings: NovelStructureSettings): string {
-  return `${settings.structureFolder}/Threads`;
+export function threadsFolderPath(folder: string): string {
+  return `${folder}/Threads`;
 }
 
 export const THREADS_BASE_NAME = "Threads.base";
@@ -66,8 +67,8 @@ export const THREADS_BASE_NAME = "Threads.base";
 // Five views: "Overall" (all kinds, shown by default since it's first),
 // "Conflict", "Motif", "Event", "Plant" — each a simple table scoped to the
 // Threads folder.
-function buildThreadsBaseContent(settings: NovelStructureSettings): string {
-  const folder = threadsFolderPath(settings);
+function buildThreadsBaseContent(novelFolder: string): string {
+  const folder = threadsFolderPath(novelFolder);
   return [
     "filters:",
     "  and:",
@@ -136,20 +137,20 @@ function buildThreadsBaseContent(settings: NovelStructureSettings): string {
 /** Creates the Threads.base file inside the Threads folder if it doesn't
  * exist yet — called whenever a thread note is created, same as the folder
  * itself. Every thread note links back to it (see buildThreadFrontmatter). */
-async function ensureThreadsBase(app: App, settings: NovelStructureSettings): Promise<void> {
-  const path = `${threadsFolderPath(settings)}/${THREADS_BASE_NAME}`;
+async function ensureThreadsBase(app: App, novelFolder: string): Promise<void> {
+  const path = `${threadsFolderPath(novelFolder)}/${THREADS_BASE_NAME}`;
   if (await app.vault.adapter.exists(path)) return;
-  await app.vault.create(path, buildThreadsBaseContent(settings));
+  await app.vault.create(path, buildThreadsBaseContent(novelFolder));
 }
 
 /** Overwrites Threads.base with a freshly generated one — the recovery path
  * while iterating on buildThreadsBaseContent's syntax, same idea as
  * refreshThreadTrackerQuery for the per-note query. */
-export async function regenerateThreadsBase(app: App, settings: NovelStructureSettings): Promise<void> {
-  const folder = threadsFolderPath(settings);
+export async function regenerateThreadsBase(app: App, novelFolder: string): Promise<void> {
+  const folder = threadsFolderPath(novelFolder);
   if (!(await app.vault.adapter.exists(folder))) await app.vault.createFolder(folder);
   const path = `${folder}/${THREADS_BASE_NAME}`;
-  const content = buildThreadsBaseContent(settings);
+  const content = buildThreadsBaseContent(novelFolder);
   if (await app.vault.adapter.exists(path)) {
     const existing = app.vault.getAbstractFileByPath(path);
     if (existing instanceof TFile) await app.vault.process(existing, () => content);
@@ -160,7 +161,7 @@ export async function regenerateThreadsBase(app: App, settings: NovelStructureSe
 
 export function isThreadFile(app: App, file: TFile, settings: NovelStructureSettings, kind?: ThreadKind): boolean {
   const fm = app.metadataCache.getFileCache(file)?.frontmatter;
-  if (!fm || !file.path.startsWith(threadsFolderPath(settings))) return false;
+  if (!fm || !settings.novels.some((n) => file.path.startsWith(threadsFolderPath(n.folder)))) return false;
   if (kind) return fm.type === kind;
   return fm.type === "conflict" || fm.type === "motif" || fm.type === "event" || fm.type === "plant";
 }
@@ -310,7 +311,10 @@ export async function collectThreadDevelopments(
   kind: ThreadKind
 ): Promise<ThreadDevelopmentEntry[]> {
   const { links } = threadFieldNames(kind);
-  const structureFiles = app.vault.getFiles().filter((f) => isStructureFile(app, f, settings));
+  const novelFolder = resolveNovelFolder(app, settings, threadFile) ?? folderForContext(app, settings);
+  const structureFiles = app.vault
+    .getFiles()
+    .filter((f) => isStructureFile(app, f, settings) && f.path.startsWith(novelFolder));
 
   const referencing = structureFiles.filter((f) => {
     const fm = app.metadataCache.getFileCache(f)?.frontmatter;
@@ -419,7 +423,7 @@ function buildThreadFrontmatter(kind: ThreadKind, fields: ThreadFields): string 
 // JavaScript Queries" for this block to render.
 const TRACKER_HEADING = "## Development timeline";
 
-export function buildThreadTrackerQuery(settings: NovelStructureSettings, kind: ThreadKind): string {
+export function buildThreadTrackerQuery(novelFolder: string, kind: ThreadKind): string {
   const { links } = threadFieldNames(kind);
   return [
     TRACKER_HEADING,
@@ -429,7 +433,7 @@ export function buildThreadTrackerQuery(settings: NovelStructureSettings, kind: 
     "const thisName = dv.current().file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\");",
     'const heading = new RegExp("^### \\\\[\\\\[" + thisName + "\\\\]\\\\]\\\\s*$", "m");',
     "",
-    `const pages = dv.pages('"${settings.structureFolder}"')`,
+    `const pages = dv.pages('"${novelFolder}"')`,
     `  .where(p => Array.isArray(p.${links}) && p.${links}.some(l => l.path === link.path))`,
     "  .sort(p => p.global_order ?? 0)",
     "  .array();",
@@ -465,17 +469,18 @@ export function buildThreadTrackerQuery(settings: NovelStructureSettings, kind: 
 export async function createThreadNote(
   app: App,
   settings: NovelStructureSettings,
+  novelFolder: string,
   kind: ThreadKind,
   fields: ThreadFields
 ): Promise<TFile> {
-  const folder = threadsFolderPath(settings);
+  const folder = threadsFolderPath(novelFolder);
   if (!(await app.vault.adapter.exists(folder))) {
     await app.vault.createFolder(folder);
   }
-  await ensureThreadsBase(app, settings);
+  await ensureThreadsBase(app, novelFolder);
   const fileName = uniqueThreadFileName(app, folder, fields.title);
   const frontmatter = buildThreadFrontmatter(kind, fields);
-  return app.vault.create(`${folder}/${fileName}.md`, frontmatter + buildThreadTrackerQuery(settings, kind));
+  return app.vault.create(`${folder}/${fileName}.md`, frontmatter + buildThreadTrackerQuery(novelFolder, kind));
 }
 
 /** Finds the ["## Development timeline", next heading-of-level-<=2-or-EOF)
@@ -523,7 +528,11 @@ const LEGACY_BLOCK_RE = /```dataview(?:js)?\n[\s\S]*?\n```\n?/;
 export async function refreshThreadTrackerQuery(app: App, settings: NovelStructureSettings, file: TFile): Promise<void> {
   const fm = app.metadataCache.getFileCache(file)?.frontmatter;
   const kind = fm?.type as ThreadKind;
-  const query = buildThreadTrackerQuery(settings, kind);
+  // Uses *this thread note's own* novel folder, not whichever novel is
+  // currently active — the tracker query is baked into the note itself and
+  // must stay correct even after the active novel later changes.
+  const novelFolder = resolveNovelFolder(app, settings, file) ?? folderForContext(app, settings);
+  const query = buildThreadTrackerQuery(novelFolder, kind);
 
   await app.vault.process(file, (content) => {
     const lines = content.split("\n");

@@ -4,6 +4,7 @@ import type NovelStructurePlugin from "../../main";
 import { characterCandidateRank } from "../../utils/characters";
 import { fileTitle, isStructureFile } from "../../utils/files";
 import { locationCandidateRank } from "../../utils/locations";
+import { folderForContext } from "../../utils/novels";
 import {
   addThreadDevelopmentToScene,
   collectThreadDevelopments,
@@ -155,8 +156,11 @@ export class ThreadEditorFormElement extends HTMLElement {
   }
 
   private renderPickExisting(container: HTMLElement) {
+    const novelFolder = folderForContext(this.app, this.plugin.settings, this.sceneContext ?? null);
     const candidates = () =>
-      this.app.vault.getMarkdownFiles().filter((f) => isThreadFile(this.app, f, this.plugin.settings, this.kind));
+      this.app.vault
+        .getMarkdownFiles()
+        .filter((f) => isThreadFile(this.app, f, this.plugin.settings, this.kind) && f.path.startsWith(novelFolder));
 
     const pick = (target: TFile) => {
       this.file = target;
@@ -231,7 +235,8 @@ export class ThreadEditorFormElement extends HTMLElement {
         new Notice("Please enter a title.");
         return;
       }
-      const created = await createThreadNote(this.app, this.plugin.settings, this.kind, this.fields);
+      const novelFolder = folderForContext(this.app, this.plugin.settings, this.sceneContext ?? null);
+      const created = await createThreadNote(this.app, this.plugin.settings, novelFolder, this.kind, this.fields);
       this.file = created;
       if (this.sceneContext && this.newDevText.trim()) {
         await addThreadDevelopmentToScene(this.app, this.sceneContext, created, this.kind, this.newDevText);

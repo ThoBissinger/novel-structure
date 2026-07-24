@@ -36,6 +36,13 @@ export interface HeadingMappingEntry {
   type: StructureType;
 }
 
+/** How a structure-canvas node's children of this type are packed relative
+ * to their parent — "row": spread left-to-right below the parent (parent
+ * centered above them), "column": stacked top-to-bottom to the parent's
+ * right (parent top-aligned with the first child), indented like an
+ * outline/org chart. See utils/structureCanvas.ts. */
+export type CanvasLayoutDirection = "row" | "column";
+
 export interface ParsedNode {
   level: number;
   type: StructureType;
@@ -67,11 +74,24 @@ export interface WeeklySelection {
  * previous/next), or Obsidian's normal full properties view. */
 export type FrontmatterDisplayMode = "hidden" | "structure" | "story" | "visible";
 
+/** One novel: a vault-relative folder everything of that book lives in, plus
+ * an optional display label (falls back to the folder's basename/root-note
+ * title in the UI when unset). See utils/novels.ts for folder resolution. */
+export interface NovelEntry {
+  folder: string;
+  label?: string;
+}
+
 export interface NovelStructureSettings {
-  structureFolder: string; // vault-relative path, everything lives here
+  novels: NovelEntry[]; // every novel registered in this vault
+  activeNovelFolder: string; // one of novels[].folder — the "current" novel for folder-less operations (see utils/novels.ts folderForContext)
   wordsPerPage: number;
   headingMapping: HeadingMappingEntry[];
-  privateTodoFile: string; // file name (inside structureFolder) for private todos — a JSON file, see privateTodoStore.ts
+  // Starting point offered in StructureCanvasLayoutModal for a fresh
+  // "Regenerate structure canvas" run — per-run overrides there aren't
+  // written back here, same as headingMapping above.
+  canvasLayoutByType: Record<Exclude<StructureType, "book">, CanvasLayoutDirection>;
+  privateTodoFile: string; // file name (inside a novel's folder) for private todos — a JSON file, see privateTodoStore.ts
   // Completed private todos older than this many days are hidden behind the
   // "Archived" tag in the Manage todos view's Completed section. null/0 =
   // never auto-archive (still shown under "Completed", just never tagged).
@@ -171,7 +191,8 @@ export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
 };
 
 export const DEFAULT_SETTINGS: NovelStructureSettings = {
-  structureFolder: "Novel",
+  novels: [], // seeded on first load — see main.ts loadSettings() migration
+  activeNovelFolder: "",
   wordsPerPage: 250,
   headingMapping: [
     { level: 1, type: "section" },
@@ -179,6 +200,7 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
     { level: 3, type: "subchapter" },
     { level: 4, type: "scene" },
   ],
+  canvasLayoutByType: { section: "column", chapter: "column", subchapter: "column", scene: "row" },
   privateTodoFile: "Private-Todos.json",
   privateTodoArchiveDays: null,
   dailySelections: {},
