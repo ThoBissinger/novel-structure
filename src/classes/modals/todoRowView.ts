@@ -1,9 +1,12 @@
-import { Menu, TFile, setIcon } from "obsidian";
+import { Menu, Notice, TFile, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, TodoStatus, TODO_STATUS_LABELS } from "../../types";
-import { deadlineUrgency, setSubtaskDone, setTodoStatus, todayDate, tomorrowDate } from "../../utils/todos";
+import { deadlineUrgency, isTodoEditable, setSubtaskDone, setTodoStatus, todayDate, tomorrowDate } from "../../utils/todos";
 import { TodoEditModal } from "./TodoEditModal";
+
+const READONLY_NOTICE =
+  "Local editing is off (Settings → Google Tasks) — edit this in Google Tasks, or turn local editing on.";
 
 // ---------------------------------------------------------------------------
 // The one compact todo-row look, shared by every place a todo list shows up
@@ -36,24 +39,36 @@ export function renderTodoRow(
   // priority, deadline, recurrence, subtasks) only changes through "Edit
   // todo" now, so a list of hundreds stays scannable instead of turning into
   // a wall of input fields.
+  const editable = isTodoEditable(plugin, todo);
   const statusBtn = row.createEl("span", { cls: `novel-todo-status-btn novel-todo-status-${todo.status}` });
   if (todo.status === "done") statusBtn.setText("✓");
   if (todo.status === "blocked") statusBtn.setText("!");
-  statusBtn.setAttr("aria-label", `Status: ${TODO_STATUS_LABELS[todo.status]} (click to change)`);
-  statusBtn.onclick = async (evt) => {
-    evt.stopPropagation();
-    const next: TodoStatus = todo.status === "open" ? "in_progress" : todo.status === "in_progress" ? "done" : "open";
-    await setTodoStatus(app, todo, next);
-    await refresh();
-  };
+  if (editable) {
+    statusBtn.setAttr("aria-label", `Status: ${TODO_STATUS_LABELS[todo.status]} (click to change)`);
+    statusBtn.onclick = async (evt) => {
+      evt.stopPropagation();
+      const next: TodoStatus = todo.status === "open" ? "in_progress" : todo.status === "in_progress" ? "done" : "open";
+      await setTodoStatus(plugin, todo, next);
+      await refresh();
+    };
+  } else {
+    statusBtn.addClass("is-readonly");
+    statusBtn.setAttr("aria-label", `Status: ${TODO_STATUS_LABELS[todo.status]} (local editing off — edit in Google Tasks)`);
+  }
 
   const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
   dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
   dot.setAttr("aria-label", `Priority: ${todo.priority}`);
 
   const main = row.createEl("div", { cls: "novel-todo-row-main" });
-  main.setAttr("aria-label", "Edit todo…");
-  main.onclick = () => new TodoEditModal(app, plugin, todo, () => refresh()).open();
+  if (editable) {
+    main.setAttr("aria-label", "Edit todo…");
+    main.onclick = () => new TodoEditModal(app, plugin, todo, () => refresh()).open();
+  } else {
+    main.addClass("novel-todo-row-readonly");
+    main.setAttr("aria-label", "Read-only (Google Tasks)");
+    main.onclick = () => new Notice(READONLY_NOTICE);
+  }
 
   const title = main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
   if (todo.status === "done") title.addClass("is-done");
@@ -118,10 +133,10 @@ export function renderTodoRow(
     };
   }
 
-  // Private todos live in a plain JSON blob now, not a note — there's
-  // nowhere meaningful to "jump" to, so the button only makes sense for
-  // scene todos.
-  if (todo.source !== "private") {
+  // Private todos live in a plain JSON blob now, not a note, and Google
+  // todos have no vault file at all — there's nowhere meaningful to "jump"
+  // to for either, so the button only makes sense for scene todos.
+  if (todo.source === "scene") {
     const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
     setIcon(openBtn, "external-link");
     openBtn.setAttr("aria-label", "Jump to this todo in its file");
@@ -175,8 +190,14 @@ export function renderTodoPickerRow(
   dot.setAttr("aria-label", `Priority: ${todo.priority}`);
 
   const main = row.createEl("div", { cls: "novel-todo-row-main" });
-  main.setAttr("aria-label", "Edit todo…");
-  main.onclick = () => new TodoEditModal(app, plugin, todo, () => refresh()).open();
+  if (isTodoEditable(plugin, todo)) {
+    main.setAttr("aria-label", "Edit todo…");
+    main.onclick = () => new TodoEditModal(app, plugin, todo, () => refresh()).open();
+  } else {
+    main.addClass("novel-todo-row-readonly");
+    main.setAttr("aria-label", "Read-only (Google Tasks)");
+    main.onclick = () => new Notice(READONLY_NOTICE);
+  }
 
   main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
   if (todo.needsReview) {
@@ -200,7 +221,7 @@ export function renderTodoPickerRow(
     main.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
   }
 
-  if (todo.source !== "private") {
+  if (todo.source === "scene") {
     const openBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
     setIcon(openBtn, "external-link");
     openBtn.setAttr("aria-label", "Jump to this todo in its file");

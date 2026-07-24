@@ -115,6 +115,51 @@ export interface NovelStructureSettings {
   // rolled up into a weekly grid (Weekly planner). Empty = tracking hidden
   // entirely in both places.
   habitNames: string[];
+  // Read-only Google Tasks integration (see utils/googleTasks.ts) — every
+  // list's tasks are merged into collectTodos() as TodoItems (source:
+  // "google") alongside scene/private todos. No write path: editing a
+  // Google-sourced todo stays in Google Tasks itself. Client ID/secret come
+  // from a Google Cloud OAuth client the user sets up themselves; the
+  // refresh token is minted by connect()'s OAuth flow, not user-typed.
+  // Stored in this vault's data.json in plain text, like the MCP token.
+  googleTasksEnabled: boolean;
+  googleClientId: string;
+  googleClientSecret: string;
+  googleRefreshToken: string;
+  // Whether a Google task not seen before starts flagged needsReview (shows
+  // in the Todo hub's "Quick todos to flesh out" section — same amber
+  // pending treatment as a QuickTodoModal capture — until explicitly
+  // "sorted in") or is treated as a normal todo right away. Toggling this
+  // only changes tasks fetched from now on — see googleTasksOverrides for
+  // what actually remembers a "sorted in" decision.
+  googleTasksRequireReview: boolean;
+  // Whether a Google-sourced todo can be edited at all from within
+  // novel-structure. Still never writes back to Google (there's no write
+  // scope/path at all, by design — see googleTasks.ts) — an edit is stored
+  // as a local override instead (googleTasksOverrides, keyed by the same
+  // "google:<listId>:<taskId>" id used as TodoItem.id) and layered on top
+  // of whatever Google returns for that task on every fetch. Off = the
+  // original fully read-only behavior.
+  googleTasksLocalEditsEnabled: boolean;
+  googleTasksOverrides: Record<string, GoogleTaskOverride>;
+}
+
+/** A locally-edited subset of a Google-sourced TodoItem's fields — see
+ * googleTasksLocalEditsEnabled. Every field optional/sparse: only the ones
+ * actually changed from what Google returned are stored, and merged on top
+ * of the freshly-fetched task (see GoogleTasksClient.fetchTasksForList).
+ * Deliberately excludes subtasks — Google's own task hierarchy isn't
+ * bridged here, subtasks stay a vault-only concept (v1 scope). */
+export interface GoogleTaskOverride {
+  status?: TodoStatus;
+  priority?: Priority;
+  deadline?: string | null;
+  recurrenceDays?: number | null;
+  doneDate?: string | null;
+  estimatedMinutes?: number | null;
+  notes?: string;
+  text?: string;
+  needsReview?: boolean;
 }
 
 export const DEFAULT_TYPE_LABELS: Record<StructureType, string> = {
@@ -152,6 +197,13 @@ export const DEFAULT_SETTINGS: NovelStructureSettings = {
   mcpServerToken: "",
   activeSession: null,
   habitNames: [],
+  googleTasksEnabled: false,
+  googleClientId: "",
+  googleClientSecret: "",
+  googleRefreshToken: "",
+  googleTasksRequireReview: true,
+  googleTasksLocalEditsEnabled: true,
+  googleTasksOverrides: {},
 };
 
 export const VIEW_TYPE_STRUCTURE = "novel-structure-view";
@@ -241,7 +293,10 @@ export interface TodoItem {
   estimatedMinutes: number | null;
   needsReview: boolean;
   notes: string;
-  source: "scene" | "private";
+  // "google" = read-only, fetched live from Google Tasks (see
+  // utils/googleTasks.ts) — filePath is "" (no vault file to jump to/write
+  // back to) and fileTitle carries the Google task list's name instead.
+  source: "scene" | "private" | "google";
   filePath: string;
   fileTitle: string;
 }

@@ -205,6 +205,116 @@ export class NovelStructureSettingTab extends PluginSettingTab {
       cls: "setting-item-description novel-structure-mcp-status",
     });
 
+    containerEl.createEl("h3", { text: "Google Tasks" });
+    containerEl.createEl("p", {
+      text:
+        "Read-only: every list's tasks show up alongside scene/private todos in the Todo hub, work session, and " +
+        "daily/weekly planning — but editing one always happens in Google Tasks itself, never here.",
+      cls: "setting-item-description",
+    });
+
+    new Setting(containerEl)
+      .setName("Enable Google Tasks")
+      .setDesc("Fetches tasks from a connected Google account into the plugin's todo views.")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.googleTasksEnabled).onChange(async (v) => {
+          this.plugin.settings.googleTasksEnabled = v;
+          await this.plugin.saveSettings();
+          this.plugin.googleTasks.invalidateCache();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("New tasks start as pending")
+      .setDesc(
+        "On: a Google task you haven't seen before shows up in the Todo hub's \"Quick todos to flesh out\" " +
+          "section (same treatment as a quick-captured todo) until you click its checkmark to sort it in. " +
+          "Off: every task is treated as a normal todo right away. Only affects tasks fetched from now on — " +
+          "already-sorted-in ones stay sorted in either way."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.googleTasksRequireReview).onChange(async (v) => {
+          this.plugin.settings.googleTasksRequireReview = v;
+          await this.plugin.saveSettings();
+          this.plugin.googleTasks.invalidateCache();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Allow local editing")
+      .setDesc(
+        "On: a Google task can be edited like any other todo (status/priority/deadline/text/notes/estimate) — " +
+          "but it's stored locally in this vault only, never sent to Google. Google Tasks itself never changes; " +
+          "the next sync still pulls the same title/notes/due date from Google, with your local edits layered " +
+          "on top. \"Reset to Google\" in a todo's edit dialog discards the local edit. Off: fully read-only, " +
+          "the original behavior."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.googleTasksLocalEditsEnabled).onChange(async (v) => {
+          this.plugin.settings.googleTasksLocalEditsEnabled = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Client ID")
+      .setDesc("From a Google Cloud OAuth client (type \"Desktop app\") with the Tasks API enabled.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.googleClientId).onChange(async (v) => {
+          this.plugin.settings.googleClientId = v.trim();
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl).setName("Client Secret").addText((text) => {
+      text.setValue(this.plugin.settings.googleClientSecret).onChange(async (v) => {
+        this.plugin.settings.googleClientSecret = v.trim();
+        await this.plugin.saveSettings();
+      });
+      text.inputEl.type = "password";
+    });
+
+    const connected = this.plugin.googleTasks.isConnected;
+    new Setting(containerEl)
+      .setName("Connection")
+      .setDesc(
+        connected
+          ? "Connected. Disconnecting also revokes novel-structure's access on Google's side."
+          : "Opens your browser to sign in and grant read-only access to Google Tasks."
+      )
+      .addButton((btn) => {
+        btn.setButtonText(connected ? "Disconnect" : "Connect");
+        if (connected) btn.setWarning();
+        btn.onClick(async () => {
+          try {
+            if (connected) {
+              await this.plugin.googleTasks.disconnect();
+              new Notice("Disconnected from Google Tasks.");
+            } else {
+              await this.plugin.googleTasks.connect();
+              new Notice("Connected to Google Tasks.");
+            }
+          } catch (e) {
+            new Notice(`Google Tasks: ${(e as Error).message}`);
+          }
+          this.display();
+        });
+      });
+
+    if (connected) {
+      const sync = this.plugin.googleTasks.lastSync;
+      const error = this.plugin.googleTasks.lastError;
+      containerEl.createEl("p", {
+        text: error
+          ? error
+          : sync
+            ? `Last sync: ${sync.todos} task(s) across ${sync.lists} list(s).`
+            : "Not synced yet — open a todo view (e.g. the Todo hub) to trigger the first fetch.",
+        cls: error ? "setting-item-description novel-todo-google-error" : "setting-item-description",
+      });
+    }
+
     containerEl.createEl("h3", { text: "File naming" });
 
     new Setting(containerEl)

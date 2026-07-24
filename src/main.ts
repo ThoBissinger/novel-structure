@@ -14,6 +14,8 @@ import {
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
 import { renderLinkifiedText } from "./classes/FieldBuilders";
+import { defineTodoRowElement } from "./classes/elements/TodoRowElement";
+import { GoogleTasksClient } from "./utils/googleTasks";
 import { McpHttpServer } from "./mcp/server";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
 import { LocationOverviewModal } from "./classes/modals/LocationOverviewModal";
@@ -99,6 +101,7 @@ const FRONTMATTER_MODE_ICON: Record<FrontmatterDisplayMode, string> = {
 export default class NovelStructurePlugin extends Plugin {
   settings!: NovelStructureSettings;
   mcpServer!: McpHttpServer;
+  googleTasks!: GoogleTasksClient;
 
   // Plain Maps (not WeakMaps) so onunload() can iterate and remove
   // everything we added to view headers/content — Obsidian doesn't clean
@@ -113,6 +116,7 @@ export default class NovelStructurePlugin extends Plugin {
     const loadStart = Date.now();
     console.debug("[novel-structure] onload start");
     await this.loadSettings();
+    defineTodoRowElement();
 
     // Deferred to onLayoutReady, not run immediately: `vault.getAbstractFileByPath`
     // for a file that genuinely exists on disk can still return null while
@@ -135,6 +139,11 @@ export default class NovelStructurePlugin extends Plugin {
     // and a second onload() ran registerView() again for the same view
     // types before the first had a chance to finish, which Obsidian rejects
     // outright ("Attempting to register an existing view type").
+    // No connection to open/close here, unlike the MCP server — it's just an
+    // OAuth-token-and-cache holder; getTodos() lazily refreshes an access
+    // token from the stored refresh token on first use.
+    this.googleTasks = new GoogleTasksClient(this);
+
     this.mcpServer = new McpHttpServer({ plugin: this });
     if (this.settings.mcpServerEnabled) {
       this.mcpServer

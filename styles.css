@@ -658,9 +658,12 @@ textarea.novel-board-field-input {
   border-radius: 6px;
   background: var(--background-secondary);
 }
-.novel-todo-quick-section > h3 {
+.novel-todo-quick-section > .novel-todo-column-header {
+  margin-bottom: 10px;
+}
+.novel-todo-quick-section > .novel-todo-column-header h3 {
   color: var(--text-warning, #e0a800);
-  margin: 0 0 10px 0;
+  margin: 0;
 }
 .novel-todo-quick-section .novel-todo-list {
   gap: 8px;
@@ -1180,6 +1183,15 @@ textarea.novel-board-field-input {
   border-color: #2ecc71;
   background: #2ecc71;
 }
+/* Google Tasks-sourced todos (see isTodoEditable()) — same status colors,
+   just not clickable; editing stays in Google Tasks itself. */
+.novel-todo-status-btn.is-readonly {
+  cursor: default;
+  opacity: 0.6;
+}
+.novel-todo-status-btn.is-readonly:hover {
+  border-color: inherit;
+}
 
 .novel-todo-row-main {
   flex: 1;
@@ -1193,6 +1205,15 @@ textarea.novel-board-field-input {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+}
+/* Google Tasks-sourced rows (see isTodoEditable()) — same look, minus the
+   "this is clickable" affordance; clicking still shows a Notice pointing
+   at where to actually edit it. */
+.novel-todo-row-compact .novel-todo-row-main.novel-todo-row-readonly {
+  cursor: default;
+}
+.novel-session-row-text.novel-todo-row-readonly {
+  cursor: default;
 }
 
 .novel-todo-text {
@@ -1442,15 +1463,44 @@ textarea.novel-board-field-input {
   height: 13px;
 }
 
+/* auto-fit, not a fixed 1fr 1fr — Private/Roman normally, plus a third
+   Google Tasks column once that integration is turned on. */
 .novel-todo-columns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
 }
 @media (max-width: 700px) {
   .novel-todo-columns {
     grid-template-columns: 1fr;
   }
+}
+
+.novel-todo-google-error {
+  color: var(--text-error, #dc2626);
+  font-size: 0.85em;
+  opacity: 0.9;
+}
+
+/* TodoEditModal's "this is a Google Task" banner — informational, not a
+   warning, so it uses the accent color rather than the amber/red language
+   used for pending/error states elsewhere. */
+.novel-todo-google-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 4px 0 12px 0;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-accent);
+  font-size: 0.85em;
+}
+.novel-todo-google-banner svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
 }
 
 .novel-todo-column-header {

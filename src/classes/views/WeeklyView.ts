@@ -338,6 +338,7 @@ export class WeeklyView extends ItemView {
     const groups: [string, TodoItem[]][] = [
       ["Private", this.todos.filter((t) => t.source === "private")],
       ["Roman", this.todos.filter((t) => t.source === "scene")],
+      ["Google Tasks", this.todos.filter((t) => t.source === "google")],
     ];
     groups.forEach(([label, group]) => {
       if (group.length === 0) return;

@@ -4,6 +4,7 @@ import { addDropdownField, addTextAreaField, addTextField, appendFieldTooltip } 
 import { PRIORITY_ORDER, Priority, TodoItem, TodoStatus, TODO_STATUS_LABELS, TODO_STATUS_ORDER } from "../../types";
 import {
   addSubtask,
+  clearGoogleOverride,
   promoteSubtask,
   readTodosForFile,
   removeSubtask,
@@ -69,6 +70,15 @@ export class TodoEditModal extends Modal {
       text: this.todo.source === "private" ? "Private" : this.todo.fileTitle,
       cls: "setting-item-description",
     });
+    if (this.todo.source === "google") {
+      const banner = contentEl.createEl("p", { cls: "novel-todo-google-banner" });
+      setIcon(banner.createSpan(), "info");
+      banner.createSpan({
+        text:
+          "This is a Google Task. It's read-only on Google's side — changes here stay local to novel-structure " +
+          "and never sync back to Google Tasks.",
+      });
+    }
 
     const form = contentEl.createEl("div", { cls: "novel-board-form" });
 
@@ -142,9 +152,10 @@ export class TodoEditModal extends Modal {
       }
     );
 
-    // Recurrence only makes sense for private todos — see the same call in
+    // Recurrence only makes sense for private/Google todos, not scene
+    // todos tied to a specific manuscript beat — see the same call in
     // TodoAddModal/TodoHubModal.
-    if (this.todo.source === "private") {
+    if (this.todo.source === "private" || this.todo.source === "google") {
       addTextField(
         scheduleRow,
         "Repeat every … days",
@@ -164,111 +175,129 @@ export class TodoEditModal extends Modal {
 
     addTextAreaField(form, "Notes", this.notes, (v) => (this.notes = v), { immediate: true });
 
-    new Setting(contentEl).setName("Subtasks").setDesc("Changes here save immediately, independent of \"Save\" below.");
-    const subtaskList = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-list" });
-    const renderSubtasks = () => {
-      subtaskList.empty();
-      this.todo.subtasks.forEach((sub) => {
-        const row = subtaskList.createEl("div", { cls: "novel-todo-modal-subtask-row" });
-        const checkbox = row.createEl("input", { type: "checkbox" });
-        checkbox.checked = sub.done;
-        checkbox.onchange = async () => {
-          await setSubtaskDone(this.app, this.todo, sub.id, checkbox.checked);
-          sub.done = checkbox.checked;
+    // Google's own task hierarchy isn't bridged here (v1 scope) — a
+    // Google-sourced todo's subtasks are always empty and there's no local
+    // override for them, so the whole section would just be a dead-end.
+    if (this.todo.source !== "google") {
+      new Setting(contentEl).setName("Subtasks").setDesc("Changes here save immediately, independent of \"Save\" below.");
+      const subtaskList = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-list" });
+      const renderSubtasks = () => {
+        subtaskList.empty();
+        this.todo.subtasks.forEach((sub) => {
+          const row = subtaskList.createEl("div", { cls: "novel-todo-modal-subtask-row" });
+          const checkbox = row.createEl("input", { type: "checkbox" });
+          checkbox.checked = sub.done;
+          checkbox.onchange = async () => {
+            await setSubtaskDone(this.app, this.todo, sub.id, checkbox.checked);
+            sub.done = checkbox.checked;
+            if (sub.done) textEl.addClass("is-done");
+            else textEl.removeClass("is-done");
+          };
+          const textEl = row.createEl("input", {
+            type: "text",
+            cls: "novel-todo-modal-subtask-text",
+            attr: { value: sub.text },
+          });
           if (sub.done) textEl.addClass("is-done");
-          else textEl.removeClass("is-done");
-        };
-        const textEl = row.createEl("input", {
-          type: "text",
-          cls: "novel-todo-modal-subtask-text",
-          attr: { value: sub.text },
-        });
-        if (sub.done) textEl.addClass("is-done");
-        textEl.addEventListener("blur", async () => {
-          const newText = textEl.value.trim();
-          if (!newText || newText === sub.text) {
-            textEl.value = sub.text;
-            return;
-          }
-          await setSubtaskText(this.app, this.todo, sub.id, newText);
-          sub.text = newText;
-        });
-        textEl.addEventListener("keydown", (evt) => {
-          if (evt.key === "Enter") textEl.blur();
-        });
-        const promoteBtn = row.createEl("span", { cls: "novel-todo-modal-subtask-promote" });
-        setIcon(promoteBtn, "arrow-up");
-        promoteBtn.setAttr("aria-label", "Promote to its own todo");
-        promoteBtn.onclick = () => {
-          new ConfirmModal(
-            this.app,
-            `Promote "${sub.text}" to its own todo? It'll be removed as a subtask here.`,
-            "Promote",
-            async () => {
-              await promoteSubtask(this.app, this.todo, sub.id);
-              this.todo.subtasks = this.todo.subtasks.filter((s) => s.id !== sub.id);
-              renderSubtasks();
-              this.onDone();
+          textEl.addEventListener("blur", async () => {
+            const newText = textEl.value.trim();
+            if (!newText || newText === sub.text) {
+              textEl.value = sub.text;
+              return;
             }
-          ).open();
-        };
-        const removeBtn = row.createEl("span", { cls: "novel-todo-modal-subtask-remove" });
-        setIcon(removeBtn, "x");
-        removeBtn.onclick = async () => {
-          await removeSubtask(this.app, this.todo, sub.id);
-          this.todo.subtasks = this.todo.subtasks.filter((s) => s.id !== sub.id);
-          renderSubtasks();
-        };
-      });
-    };
-    renderSubtasks();
-
-    const subtaskAddRow = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-add-row" });
-    const subtaskInput = subtaskAddRow.createEl("input", { type: "text", attr: { placeholder: "Add a subtask…" } });
-    subtaskInput.style.width = "100%";
-    const submitSubtask = async () => {
-      const value = subtaskInput.value.trim();
-      if (!value) return;
-      await addSubtask(this.app, this.todo, value);
-      // addSubtask() generates the new subtask's id internally rather than
-      // returning it — re-read the file so this.todo.subtasks carries the
-      // real persisted id, not a placeholder (a placeholder id wouldn't
-      // match anything on disk if "remove" gets clicked before this modal
-      // is ever reopened).
-      const file = this.app.vault.getAbstractFileByPath(this.todo.filePath);
-      if (file instanceof TFile) {
-        const entries = await readTodosForFile(this.app, file);
-        const fresh = entries.find((e) => e.id === this.todo.id);
-        if (fresh) this.todo.subtasks = fresh.subtasks;
-      }
-      subtaskInput.value = "";
+            await setSubtaskText(this.app, this.todo, sub.id, newText);
+            sub.text = newText;
+          });
+          textEl.addEventListener("keydown", (evt) => {
+            if (evt.key === "Enter") textEl.blur();
+          });
+          const promoteBtn = row.createEl("span", { cls: "novel-todo-modal-subtask-promote" });
+          setIcon(promoteBtn, "arrow-up");
+          promoteBtn.setAttr("aria-label", "Promote to its own todo");
+          promoteBtn.onclick = () => {
+            new ConfirmModal(
+              this.app,
+              `Promote "${sub.text}" to its own todo? It'll be removed as a subtask here.`,
+              "Promote",
+              async () => {
+                await promoteSubtask(this.app, this.todo, sub.id);
+                this.todo.subtasks = this.todo.subtasks.filter((s) => s.id !== sub.id);
+                renderSubtasks();
+                this.onDone();
+              }
+            ).open();
+          };
+          const removeBtn = row.createEl("span", { cls: "novel-todo-modal-subtask-remove" });
+          setIcon(removeBtn, "x");
+          removeBtn.onclick = async () => {
+            await removeSubtask(this.app, this.todo, sub.id);
+            this.todo.subtasks = this.todo.subtasks.filter((s) => s.id !== sub.id);
+            renderSubtasks();
+          };
+        });
+      };
       renderSubtasks();
-    };
-    subtaskInput.addEventListener("keydown", (evt) => {
-      if (evt.key === "Enter") {
-        evt.preventDefault();
-        submitSubtask();
-      }
-    });
-    subtaskInput.addEventListener("blur", submitSubtask);
-    const subtaskAddBtn = subtaskAddRow.createEl("span", { cls: "novel-todo-modal-subtask-add-btn" });
-    setIcon(subtaskAddBtn, "plus");
-    subtaskAddBtn.onclick = submitSubtask;
+
+      const subtaskAddRow = contentEl.createEl("div", { cls: "novel-todo-modal-subtask-add-row" });
+      const subtaskInput = subtaskAddRow.createEl("input", { type: "text", attr: { placeholder: "Add a subtask…" } });
+      subtaskInput.style.width = "100%";
+      const submitSubtask = async () => {
+        const value = subtaskInput.value.trim();
+        if (!value) return;
+        await addSubtask(this.app, this.todo, value);
+        // addSubtask() generates the new subtask's id internally rather than
+        // returning it — re-read the file so this.todo.subtasks carries the
+        // real persisted id, not a placeholder (a placeholder id wouldn't
+        // match anything on disk if "remove" gets clicked before this modal
+        // is ever reopened).
+        const file = this.app.vault.getAbstractFileByPath(this.todo.filePath);
+        if (file instanceof TFile) {
+          const entries = await readTodosForFile(this.app, file);
+          const fresh = entries.find((e) => e.id === this.todo.id);
+          if (fresh) this.todo.subtasks = fresh.subtasks;
+        }
+        subtaskInput.value = "";
+        renderSubtasks();
+      };
+      subtaskInput.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter") {
+          evt.preventDefault();
+          submitSubtask();
+        }
+      });
+      subtaskInput.addEventListener("blur", submitSubtask);
+      const subtaskAddBtn = subtaskAddRow.createEl("span", { cls: "novel-todo-modal-subtask-add-btn" });
+      setIcon(subtaskAddBtn, "plus");
+      subtaskAddBtn.onclick = submitSubtask;
+    }
 
     new Setting(contentEl)
       .addButton((btn) =>
-        btn
-          .setButtonText("Delete")
-          .setWarning()
-          .onClick(() => {
-            new ConfirmModal(this.app, `Delete "${this.todo.text}" permanently?`, "Delete", async () => {
-              const file = this.app.vault.getAbstractFileByPath(this.todo.filePath);
-              if (!(file instanceof TFile)) return;
-              await removeTodo(this.app, file, this.todo.id);
-              this.close();
-              this.onDone();
-            }).open();
-          })
+        this.todo.source === "google"
+          ? btn.setButtonText("Reset to Google").onClick(() => {
+              new ConfirmModal(
+                this.app,
+                `Discard local edits to "${this.todo.text}" and revert to whatever Google Tasks has for it?`,
+                "Reset",
+                async () => {
+                  await clearGoogleOverride(this.plugin, this.todo);
+                  this.close();
+                  this.onDone();
+                }
+              ).open();
+            })
+          : btn
+              .setButtonText("Delete")
+              .setWarning()
+              .onClick(() => {
+                new ConfirmModal(this.app, `Delete "${this.todo.text}" permanently?`, "Delete", async () => {
+                  const file = this.app.vault.getAbstractFileByPath(this.todo.filePath);
+                  if (!(file instanceof TFile)) return;
+                  await removeTodo(this.app, file, this.todo.id);
+                  this.close();
+                  this.onDone();
+                }).open();
+              })
       )
       .addButton((btn) =>
         btn
@@ -280,22 +309,22 @@ export class TodoEditModal extends Modal {
               return;
             }
             const text = this.text.trim();
-            if (text !== this.todo.text) await setTodoText(this.app, this.todo, text);
-            if (this.status !== this.todo.status) await setTodoStatus(this.app, this.todo, this.status);
-            if (this.priority !== this.todo.priority) await setTodoPriority(this.app, this.todo, this.priority);
-            if (this.deadline !== this.todo.deadline) await setTodoDeadline(this.app, this.todo, this.deadline);
+            if (text !== this.todo.text) await setTodoText(this.plugin, this.todo, text);
+            if (this.status !== this.todo.status) await setTodoStatus(this.plugin, this.todo, this.status);
+            if (this.priority !== this.todo.priority) await setTodoPriority(this.plugin, this.todo, this.priority);
+            if (this.deadline !== this.todo.deadline) await setTodoDeadline(this.plugin, this.todo, this.deadline);
             if (this.recurrenceDays !== this.todo.recurrenceDays) {
-              await setTodoRecurrence(this.app, this.todo, this.recurrenceDays);
+              await setTodoRecurrence(this.plugin, this.todo, this.recurrenceDays);
             }
             if (this.estimatedMinutes !== this.todo.estimatedMinutes) {
-              await setTodoEstimatedMinutes(this.app, this.todo, this.estimatedMinutes);
+              await setTodoEstimatedMinutes(this.plugin, this.todo, this.estimatedMinutes);
             }
-            if (this.notes !== this.todo.notes) await setTodoNotes(this.app, this.todo, this.notes);
+            if (this.notes !== this.todo.notes) await setTodoNotes(this.plugin, this.todo, this.notes);
             // Editing a quick todo here is exactly what it means to "flesh
             // it out" — clear the review flag regardless of which fields
             // actually changed, so it stops resurfacing in the session-
             // start review.
-            if (this.todo.needsReview) await setTodoNeedsReview(this.app, this.todo, false);
+            if (this.todo.needsReview) await setTodoNeedsReview(this.plugin, this.todo, false);
             this.close();
             this.onDone();
           })

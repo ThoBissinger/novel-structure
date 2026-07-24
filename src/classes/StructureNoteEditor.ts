@@ -217,7 +217,7 @@ export class StructureNoteEditor {
         checkbox.onclick = (evt) => evt.stopPropagation();
         checkbox.onchange = async () => {
           await setTodoStatus(
-            this.app,
+            this.plugin,
             { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
             checkbox.checked ? "done" : "open"
           );
@@ -232,7 +232,7 @@ export class StructureNoteEditor {
           const newText = text.value.trim();
           if (!newText || newText === entry.text) return;
           await setTodoText(
-            this.app,
+            this.plugin,
             { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
             newText
           );
@@ -273,7 +273,7 @@ export class StructureNoteEditor {
           const raw = deadlineInput.value.trim();
           if (raw === initialDeadline) return;
           if (!raw) {
-            await setTodoDeadline(this.app, { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" }, null);
+            await setTodoDeadline(this.plugin, { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" }, null);
             this.onChange();
             return;
           }
@@ -284,7 +284,7 @@ export class StructureNoteEditor {
             return;
           }
           deadlineInput.value = parsed;
-          await setTodoDeadline(this.app, { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" }, parsed);
+          await setTodoDeadline(this.plugin, { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" }, parsed);
           this.onChange();
         });
 
@@ -293,7 +293,7 @@ export class StructureNoteEditor {
         chip.onclick = async (evt) => {
           evt.stopPropagation();
           await setTodoPriority(
-            this.app,
+            this.plugin,
             { ...entry, source: "scene", filePath: this.file.path, fileTitle: "" },
             nextPriority(entry.priority)
           );

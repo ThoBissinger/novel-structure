@@ -96,7 +96,7 @@ export class AssignDeadlineModal extends Modal {
     setIcon(assignBtn, "calendar-check");
     assignBtn.setAttr("aria-label", `Set deadline to ${this.date}`);
     assignBtn.onclick = async () => {
-      await setTodoDeadline(this.app, todo, this.date);
+      await setTodoDeadline(this.plugin, todo, this.date);
       await this.refresh();
     };
   }

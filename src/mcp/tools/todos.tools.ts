@@ -93,7 +93,7 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
       if (!file) return errorResult(`No note found at "${path}".`);
       const item = await findTodoItem(app, file, todoId);
       if (!item) return errorResult(`No todo with id "${todoId}" found in "${path}".`);
-      await setTodoStatus(app, item, status);
+      await setTodoStatus(ctx.plugin, item, status);
       return jsonResult({ path: file.path, todoId, status });
     }
   );
@@ -111,7 +111,7 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
       if (!file) return errorResult(`No note found at "${path}".`);
       const item = await findTodoItem(app, file, todoId);
       if (!item) return errorResult(`No todo with id "${todoId}" found in "${path}".`);
-      await setTodoPriority(app, item, priority);
+      await setTodoPriority(ctx.plugin, item, priority);
       return jsonResult({ path: file.path, todoId, priority });
     }
   );
@@ -129,7 +129,7 @@ export function registerTodoTools(server: McpServer, ctx: ToolContext): void {
       if (!file) return errorResult(`No note found at "${path}".`);
       const item = await findTodoItem(app, file, todoId);
       if (!item) return errorResult(`No todo with id "${todoId}" found in "${path}".`);
-      await setTodoDeadline(app, item, deadline ?? null);
+      await setTodoDeadline(ctx.plugin, item, deadline ?? null);
       return jsonResult({ path: file.path, todoId, deadline: deadline ?? null });
     }
   );

@@ -2,7 +2,14 @@ import { App, Modal } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { TodoItem } from "../../types";
 import { toggleSessionTodo } from "../../utils/session";
-import { buildTodoTargets, collectTodos, setTodoEstimatedMinutes, sortTodosForDisplay, todayDate } from "../../utils/todos";
+import {
+  buildTodoTargets,
+  collectTodos,
+  isTodoEditable,
+  setTodoEstimatedMinutes,
+  sortTodosForDisplay,
+  todayDate,
+} from "../../utils/todos";
 import { TodoAddModal } from "./TodoAddModal";
 import { renderSubtaskExpandToggle, renderTodoPickerRow } from "./todoRowView";
 
@@ -78,6 +85,7 @@ export class SessionPlanModal extends Modal {
     const groups: [string, TodoItem[]][] = [
       ["Private", filtered.filter((t) => t.source === "private")],
       ["Roman", filtered.filter((t) => t.source === "scene")],
+      ["Google Tasks", filtered.filter((t) => t.source === "google")],
     ];
     groups.forEach(([label, group]) => {
       if (group.length === 0) return;
@@ -109,13 +117,20 @@ export class SessionPlanModal extends Modal {
     });
     estimateInput.value = todo.estimatedMinutes != null ? String(todo.estimatedMinutes) : "";
     estimateInput.onclick = (evt) => evt.stopPropagation();
-    estimateInput.addEventListener("blur", async () => {
-      const n = parseInt(estimateInput.value, 10);
-      const minutes = Number.isFinite(n) && n >= 1 ? n : null;
-      if (minutes === todo.estimatedMinutes) return;
-      await setTodoEstimatedMinutes(this.app, todo, minutes);
-      todo.estimatedMinutes = minutes;
-    });
+    if (isTodoEditable(this.plugin, todo)) {
+      estimateInput.addEventListener("blur", async () => {
+        const n = parseInt(estimateInput.value, 10);
+        const minutes = Number.isFinite(n) && n >= 1 ? n : null;
+        if (minutes === todo.estimatedMinutes) return;
+        await setTodoEstimatedMinutes(this.plugin, todo, minutes);
+        todo.estimatedMinutes = minutes;
+      });
+    } else {
+      // Google-sourced and local editing is off (see isTodoEditable) —
+      // budget it implicitly instead (see the session sidebar).
+      estimateInput.disabled = true;
+      estimateInput.placeholder = "n/a";
+    }
 
     const session = this.plugin.settings.activeSession;
     const inSession = !!session?.todoIds.includes(todo.id);

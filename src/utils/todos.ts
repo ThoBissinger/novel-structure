@@ -1,6 +1,6 @@
 import { App, Notice, TFile } from "obsidian";
 import type NovelStructurePlugin from "../main";
-import { Priority, PRIORITY_ORDER, TodoEntry, TodoItem, TodoStatus, TodoSubtask } from "../types";
+import { GoogleTaskOverride, Priority, PRIORITY_ORDER, TodoEntry, TodoItem, TodoStatus, TodoSubtask } from "../types";
 import { isStructureFile } from "./files";
 import { generateTodoId, readTodos, splitFrontmatterAndBody, todosNeedRewrite, writeTodos } from "./noteBody";
 import { parsePrivateTodos, serializePrivateTodos } from "./privateTodoStore";
@@ -215,50 +215,100 @@ export async function collectTodos(plugin: NovelStructurePlugin): Promise<TodoIt
   // todos…" hanging) — logs which file, if any, is unexpectedly slow to
   // read/rewrite, and the overall total. Safe to remove once the cause is
   // found; console.debug/warn cost nothing when DevTools isn't open.
-  const perFile = await Promise.all(
-    candidates.map(async (file): Promise<TodoItem[]> => {
-      const fileStart = Date.now();
-      const isPrivate = file.path === privatePath;
-      const fm = app.metadataCache.getFileCache(file)?.frontmatter;
-      const fileTitle = isPrivate ? "Private" : fm?.title || file.basename;
-      const entries = await readTodosForFile(app, file);
-      const fileMs = Date.now() - fileStart;
-      if (fileMs > 300) {
-        console.warn(`[novel-structure] collectTodos: "${file.path}" took ${fileMs}ms (${entries.length} entries)`);
-      }
-      return entries.map((entry) => ({
-        id: entry.id,
-        text: entry.text,
-        status: entry.status,
-        priority: entry.priority,
-        deadline: entry.deadline,
-        subtasks: entry.subtasks,
-        recurrenceDays: entry.recurrenceDays,
-        doneDate: entry.doneDate,
-        estimatedMinutes: entry.estimatedMinutes,
-        needsReview: entry.needsReview,
-        notes: entry.notes,
-        source: isPrivate ? "private" : "scene",
-        filePath: file.path,
-        fileTitle,
-      }));
-    })
-  );
+  const [perFile, googleTodos] = await Promise.all([
+    Promise.all(
+      candidates.map(async (file): Promise<TodoItem[]> => {
+        const fileStart = Date.now();
+        const isPrivate = file.path === privatePath;
+        const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+        const fileTitle = isPrivate ? "Private" : fm?.title || file.basename;
+        const entries = await readTodosForFile(app, file);
+        const fileMs = Date.now() - fileStart;
+        if (fileMs > 300) {
+          console.warn(`[novel-structure] collectTodos: "${file.path}" took ${fileMs}ms (${entries.length} entries)`);
+        }
+        return entries.map((entry) => ({
+          id: entry.id,
+          text: entry.text,
+          status: entry.status,
+          priority: entry.priority,
+          deadline: entry.deadline,
+          subtasks: entry.subtasks,
+          recurrenceDays: entry.recurrenceDays,
+          doneDate: entry.doneDate,
+          estimatedMinutes: entry.estimatedMinutes,
+          needsReview: entry.needsReview,
+          notes: entry.notes,
+          source: (isPrivate ? "private" : "scene") as TodoItem["source"],
+          filePath: file.path,
+          fileTitle,
+        }));
+      })
+    ),
+    // Never throws — see GoogleTasksClient.getTodos()'s own doc comment —
+    // and a no-op [] when the integration is off/not connected.
+    plugin.googleTasks.getTodos(),
+  ]);
 
   console.debug(
     `[novel-structure] collectTodos: ${candidates.length} candidate file(s), ${Date.now() - collectStart}ms total`
   );
-  return perFile.flat();
+  return [...perFile.flat(), ...googleTodos];
 }
 
+/** Whether a todo can be edited from within novel-structure — for a Google
+ * Tasks-sourced todo this depends on the "Allow local editing" setting
+ * (off = the original fully read-only behavior); everything else is always
+ * editable. Row renderers use this to decide whether to wire status/text
+ * mutation controls at all, instead of letting them fail confusingly
+ * against a nonexistent file when it's a Google todo and local edits are
+ * off. */
+export function isTodoEditable(plugin: NovelStructurePlugin, todo: TodoItem): boolean {
+  return todo.source !== "google" || plugin.settings.googleTasksLocalEditsEnabled;
+}
+
+/** Writes/merges a patch into a Google-sourced todo's local override (see
+ * GoogleTaskOverride) and invalidates the fetch cache so the change is
+ * reflected the next time anything reads todos — there's no vault file to
+ * write to, so this is the entire "persistence" for a Google todo edit.
+ * Every setTodoX() below routes here instead of mutateTodoEntry() when
+ * `item.source === "google"`. */
+async function setGoogleOverride(
+  plugin: NovelStructurePlugin,
+  item: TodoItem,
+  patch: Partial<GoogleTaskOverride>
+): Promise<void> {
+  const existing = plugin.settings.googleTasksOverrides[item.id] ?? {};
+  plugin.settings.googleTasksOverrides[item.id] = { ...existing, ...patch };
+  await plugin.saveSettings();
+  plugin.googleTasks.invalidateCache();
+}
+
+/** Drops a Google-sourced todo's local override entirely, reverting it to
+ * exactly whatever Google itself has for that task on the next fetch.
+ * No-op for a non-Google todo or one with no override yet. */
+export async function clearGoogleOverride(plugin: NovelStructurePlugin, item: TodoItem): Promise<void> {
+  if (item.source !== "google") return;
+  if (item.id in plugin.settings.googleTasksOverrides) {
+    delete plugin.settings.googleTasksOverrides[item.id];
+    await plugin.saveSettings();
+  }
+  plugin.googleTasks.invalidateCache();
+}
+
+/** Returns whether the entry was actually found and mutated — callers use
+ * this to decide whether it's safe to also patch their in-memory TodoItem
+ * (see every setTodoX() below): only ever reflect a change in the UI's
+ * cached copy once it's confirmed to have actually landed on disk, never
+ * optimistically. */
 async function mutateTodoEntry(
   app: App,
   filePath: string,
   id: string,
   mutator: (entry: TodoEntry) => void
-): Promise<void> {
+): Promise<boolean> {
   const file = app.vault.getAbstractFileByPath(filePath);
-  if (!(file instanceof TFile)) return;
+  if (!(file instanceof TFile)) return false;
 
   let found = false;
   if (file.extension === "json") {
@@ -271,7 +321,7 @@ async function mutateTodoEntry(
       return serializePrivateTodos(entries);
     });
     if (!found) new Notice("Todo could not be found anymore (file may have changed in the meantime).");
-    return;
+    return found;
   }
 
   await migrateLegacyTodos(app, file);
@@ -285,44 +335,103 @@ async function mutateTodoEntry(
     return frontmatterBlock + writeTodos(body, entries);
   });
   if (!found) new Notice("Todo could not be found anymore (file may have changed in the meantime).");
+  return found;
 }
 
 /** Marking a recurring todo done doesn't actually complete it — it resets
  * back to open and pushes its deadline `recurrenceDays` out from today
  * (not from the old deadline, so an early or late check-off doesn't drift
  * the schedule), so it never needs recreating or risks piling up as
- * duplicates. A non-recurring todo behaves exactly as before. */
-export async function setTodoStatus(app: App, item: TodoItem, status: TodoStatus): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => {
-    if (status === "done" && e.recurrenceDays) {
-      e.status = "open";
-      e.deadline = addDays(todayDate(), e.recurrenceDays);
-      // doneDate stays untouched — it never actually completes.
+ * duplicates. A non-recurring todo behaves exactly as before.
+ *
+ * Also patches `item` itself with whatever actually got persisted (only if
+ * it did) — every caller across the plugin already holds the exact same
+ * TodoItem object that's sitting in some view's cached todo list, so this
+ * is what lets a row handler redraw from that cache instead of re-running
+ * collectTodos() after every single click (see the Todo hub's row
+ * handlers). */
+export async function setTodoStatus(plugin: NovelStructurePlugin, item: TodoItem, status: TodoStatus): Promise<void> {
+  if (item.source === "google") {
+    if (status === "done" && item.recurrenceDays) {
+      const deadline = addDays(todayDate(), item.recurrenceDays);
+      await setGoogleOverride(plugin, item, { status: "open", deadline });
+      item.status = "open";
+      item.deadline = deadline;
     } else {
-      e.status = status;
-      e.doneDate = status === "done" ? todayDate() : null;
+      const doneDate = status === "done" ? todayDate() : null;
+      await setGoogleOverride(plugin, item, { status, doneDate });
+      item.status = status;
+      item.doneDate = doneDate;
     }
-  });
+    return;
+  }
+  if (status === "done" && item.recurrenceDays) {
+    const deadline = addDays(todayDate(), item.recurrenceDays);
+    const found = await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => {
+      e.status = "open";
+      e.deadline = deadline;
+      // doneDate stays untouched — it never actually completes.
+    });
+    if (found) {
+      item.status = "open";
+      item.deadline = deadline;
+    }
+  } else {
+    const doneDate = status === "done" ? todayDate() : null;
+    const found = await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => {
+      e.status = status;
+      e.doneDate = doneDate;
+    });
+    if (found) {
+      item.status = status;
+      item.doneDate = doneDate;
+    }
+  }
 }
 
-export async function setTodoText(app: App, item: TodoItem, text: string): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.text = text));
+export async function setTodoText(plugin: NovelStructurePlugin, item: TodoItem, text: string): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { text });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.text = text)))) {
+    return;
+  }
+  item.text = text;
 }
 
-export async function setTodoPriority(app: App, item: TodoItem, newPriority: Priority): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.priority = newPriority));
+export async function setTodoPriority(plugin: NovelStructurePlugin, item: TodoItem, newPriority: Priority): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { priority: newPriority });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.priority = newPriority)))) {
+    return;
+  }
+  item.priority = newPriority;
 }
 
-export async function setTodoDeadline(app: App, item: TodoItem, deadline: string | null): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.deadline = deadline));
+export async function setTodoDeadline(plugin: NovelStructurePlugin, item: TodoItem, deadline: string | null): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { deadline });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.deadline = deadline)))) {
+    return;
+  }
+  item.deadline = deadline;
 }
 
-export async function setTodoEstimatedMinutes(app: App, item: TodoItem, minutes: number | null): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.estimatedMinutes = minutes));
+export async function setTodoEstimatedMinutes(plugin: NovelStructurePlugin, item: TodoItem, minutes: number | null): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { estimatedMinutes: minutes });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.estimatedMinutes = minutes)))) {
+    return;
+  }
+  item.estimatedMinutes = minutes;
 }
 
-export async function setTodoRecurrence(app: App, item: TodoItem, recurrenceDays: number | null): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.recurrenceDays = recurrenceDays));
+export async function setTodoRecurrence(plugin: NovelStructurePlugin, item: TodoItem, recurrenceDays: number | null): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { recurrenceDays });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.recurrenceDays = recurrenceDays)))) {
+    return;
+  }
+  item.recurrenceDays = recurrenceDays;
 }
 
 export async function addSubtask(app: App, item: TodoItem, text: string): Promise<void> {
@@ -476,12 +585,25 @@ export async function addQuickTodo(app: App, plugin: NovelStructurePlugin, text:
   await addTodo(app, file, text, "medium", null, null, [], null, true);
 }
 
-export async function setTodoNotes(app: App, item: TodoItem, notes: string): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.notes = notes));
+export async function setTodoNotes(plugin: NovelStructurePlugin, item: TodoItem, notes: string): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { notes });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.notes = notes)))) {
+    return;
+  }
+  item.notes = notes;
 }
 
-export async function setTodoNeedsReview(app: App, item: TodoItem, needsReview: boolean): Promise<void> {
-  await mutateTodoEntry(app, item.filePath, item.id, (e) => (e.needsReview = needsReview));
+/** For a Google-sourced todo this is also what "sort in" (Todo hub's Quick
+ * todos section) calls to clear the pending flag — same override mechanism
+ * as every other locally-edited field, see GoogleTaskOverride. */
+export async function setTodoNeedsReview(plugin: NovelStructurePlugin, item: TodoItem, needsReview: boolean): Promise<void> {
+  if (item.source === "google") {
+    await setGoogleOverride(plugin, item, { needsReview });
+  } else if (!(await mutateTodoEntry(plugin.app, item.filePath, item.id, (e) => (e.needsReview = needsReview)))) {
+    return;
+  }
+  item.needsReview = needsReview;
 }
 
 /** Days between today and `deadline` ("YYYY-MM-DD"), negative if overdue.

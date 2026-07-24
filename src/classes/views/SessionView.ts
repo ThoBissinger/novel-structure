@@ -1,4 +1,4 @@
-import { ItemView, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
 import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_SESSION } from "../../types";
 import {
@@ -11,7 +11,7 @@ import {
   skipPlanningPhase,
   startSession,
 } from "../../utils/session";
-import { collectTodos, isTodoRelevantFile, setTodoStatus } from "../../utils/todos";
+import { collectTodos, isTodoEditable, isTodoRelevantFile, setTodoStatus } from "../../utils/todos";
 import { SessionPlanModal } from "../modals/SessionPlanModal";
 import { TodoEditModal } from "../modals/TodoEditModal";
 import { TodoHubModal } from "../modals/TodoHubModal";
@@ -218,21 +218,32 @@ export class SessionView extends ItemView {
   private renderRow(container: HTMLElement, todo: TodoItem) {
     const row = container.createEl("div", { cls: "novel-session-row" });
 
+    const editable = isTodoEditable(this.plugin, todo);
     const statusBtn = row.createEl("span", { cls: `novel-todo-status-btn novel-todo-status-${todo.status}` });
     if (todo.status === "done") statusBtn.setText("✓");
     if (todo.status === "blocked") statusBtn.setText("!");
-    statusBtn.onclick = async () => {
-      const next = todo.status === "open" ? "in_progress" : todo.status === "in_progress" ? "done" : "open";
-      await setTodoStatus(this.app, todo, next);
-      await this.refresh();
-    };
+    if (editable) {
+      statusBtn.onclick = async () => {
+        const next = todo.status === "open" ? "in_progress" : todo.status === "in_progress" ? "done" : "open";
+        await setTodoStatus(this.plugin, todo, next);
+        await this.refresh();
+      };
+    } else {
+      statusBtn.addClass("is-readonly");
+    }
 
     const text = row.createEl("span", {
       text: todo.text,
       cls: "novel-session-row-text" + (todo.status === "done" ? " is-done" : ""),
       attr: { title: todo.text },
     });
-    text.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refresh()).open();
+    if (editable) {
+      text.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refresh()).open();
+    } else {
+      text.addClass("novel-todo-row-readonly");
+      text.onclick = () =>
+        new Notice("Local editing is off (Settings → Google Tasks) — edit this in Google Tasks, or turn local editing on.");
+    }
 
     if (todo.estimatedMinutes) {
       row.createEl("span", { text: `~${todo.estimatedMinutes}m`, cls: "novel-todo-estimate-badge" });

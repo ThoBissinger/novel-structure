@@ -9,6 +9,7 @@ import {
   deadlineUrgency,
   ensurePrivateTodoFile,
   isPrivateTodoArchived,
+  isTodoEditable,
   removeTodo,
   setTodoNeedsReview,
   setTodoStatus,
@@ -18,9 +19,9 @@ import {
   tomorrowDate,
 } from "../../utils/todos";
 import { findRootNote } from "../../utils/rootNote";
+import { createTodoRowElement } from "../elements/TodoRowElement";
 import { ConfirmModal } from "./ConfirmModal";
 import { DailyPlannerModal } from "./DailyPlannerModal";
-import { renderTodoRow } from "./todoRowView";
 import { TodoAddModal, TodoTarget } from "./TodoAddModal";
 import { TodoEditModal } from "./TodoEditModal";
 
@@ -194,7 +195,7 @@ export class TodoHubModal extends Modal {
 
     const list = box.createEl("div", { cls: "novel-todo-list" });
     items.forEach((todo) =>
-      renderTodoRow(this.app, this.plugin, list, todo, {}, () => this.render(), () => this.close())
+      createTodoRowElement(this.app, this.plugin, list, todo, {}, () => this.render(), () => this.close())
     );
 
     new Setting(box).addButton((btn) => btn.setButtonText("Edit weekly plan").onClick(openRitual));
@@ -254,7 +255,7 @@ export class TodoHubModal extends Modal {
       ids.forEach((id) => {
         const todo = allTodos.find((t) => t.id === id);
         if (todo) {
-          renderTodoRow(
+          createTodoRowElement(
             this.app,
             this.plugin,
             list,
@@ -342,6 +343,42 @@ export class TodoHubModal extends Modal {
       sceneColumn,
       openTodos.filter((t) => t.source === "scene")
     );
+
+    // Only shown once the integration is actually turned on AND connected
+    // (Settings → Google Tasks) — nothing changes here for anyone who
+    // hasn't touched that setting, and no empty "No open todos 🎉" column
+    // before a connection even exists yet.
+    if (this.plugin.settings.googleTasksEnabled && this.plugin.googleTasks.isConnected) {
+      const googleColumn = columns.createEl("div", { cls: "novel-todo-column" });
+      const googleHeader = googleColumn.createEl("div", { cls: "novel-todo-column-header" });
+      googleHeader.createEl("h4", { text: "Google Tasks" });
+      this.renderGoogleRefreshButton(googleHeader);
+      const error = this.plugin.googleTasks.lastError;
+      if (error) {
+        googleColumn.createEl("p", { text: error, cls: "novel-todo-google-error" });
+      }
+      this.renderTodoGroups(
+        googleColumn,
+        openTodos.filter((t) => t.source === "google"),
+        { showSource: true }
+      );
+    }
+  }
+
+  /** Manual "check Google now" trigger — the cache otherwise only refreshes
+   * itself lazily (next collectTodos() call more than a minute after the
+   * last fetch, see GoogleTasksClient), so a task added on the Google side
+   * a few seconds ago wouldn't show up just by having this modal open.
+   * No-op render if not connected — nothing to refresh. */
+  private renderGoogleRefreshButton(container: HTMLElement) {
+    if (!this.plugin.googleTasks.isConnected) return;
+    const btn = container.createEl("span", { cls: "novel-todo-open-btn" });
+    setIcon(btn, "refresh-cw");
+    btn.setAttr("aria-label", "Check Google Tasks now");
+    btn.onclick = async () => {
+      this.plugin.googleTasks.invalidateCache();
+      await this.render();
+    };
   }
 
   /** Quick todos (QuickTodoModal — text-only capture, flagged `needsReview`)
@@ -359,7 +396,9 @@ export class TodoHubModal extends Modal {
    * pending right now. */
   private renderQuickTodosSection(container: HTMLElement, quickTodos: TodoItem[]) {
     const section = container.createEl("div", { cls: "novel-todo-section novel-todo-quick-section" });
-    section.createEl("h3", { text: `Quick todos to flesh out (${quickTodos.length})` });
+    const header = section.createEl("div", { cls: "novel-todo-column-header" });
+    header.createEl("h3", { text: `Quick todos to flesh out (${quickTodos.length})` });
+    this.renderGoogleRefreshButton(header);
     if (quickTodos.length === 0) {
       section.createEl("p", { text: "Nothing to review right now.", cls: "novel-todo-empty" });
       return;
@@ -376,6 +415,35 @@ export class TodoHubModal extends Modal {
 
     row.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
 
+    // Google-sourced: no file to delete against — "Edit" only shows up if
+    // local editing is on (see isTodoEditable()), and "Discard" doesn't
+    // exist at all (there's no sensible "delete" for an external task).
+    // "Sort in" always works either way — it's a local-only pending flag,
+    // not a content edit (see setTodoNeedsReview's Google branch).
+    if (todo.source === "google") {
+      row.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
+      if (isTodoEditable(this.plugin, todo)) {
+        const editBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+        setIcon(editBtn, "pencil");
+        editBtn.setAttr("aria-label", "Edit (also sorts it in)");
+        editBtn.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.render()).open();
+      }
+      const sortInBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
+      setIcon(sortInBtn, "check");
+      sortInBtn.setAttr("aria-label", "Sort in as a normal todo");
+      sortInBtn.onclick = async () => {
+        // setTodoNeedsReview already patches `todo` (the exact object
+        // sitting in this.allTodos) in place once it's confirmed persisted
+        // — a full render() would mean a "Loading todos…" flash plus a
+        // fresh collectTodos() disk/network round trip just to redraw the
+        // same list with one flag flipped. renderShell() rebuilds the DOM
+        // from the todos already in memory instead.
+        await setTodoNeedsReview(this.plugin, todo, false);
+        this.renderShell();
+      };
+      return;
+    }
+
     const editBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
     setIcon(editBtn, "pencil");
     editBtn.setAttr("aria-label", "Edit (also clears the review flag)");
@@ -385,8 +453,8 @@ export class TodoHubModal extends Modal {
     setIcon(acceptBtn, "check");
     acceptBtn.setAttr("aria-label", "Accept as-is (clears the review flag, no other changes)");
     acceptBtn.onclick = async () => {
-      await setTodoNeedsReview(this.app, todo, false);
-      this.render();
+      await setTodoNeedsReview(this.plugin, todo, false);
+      this.renderShell();
     };
 
     const discardBtn = row.createEl("span", { cls: "novel-todo-remove-btn" });
@@ -395,8 +463,17 @@ export class TodoHubModal extends Modal {
     discardBtn.onclick = async () => {
       const file = this.app.vault.getAbstractFileByPath(todo.filePath);
       if (file instanceof TFile) await removeTodo(this.app, file, todo.id);
-      this.render();
+      this.dropFromCache(todo.id);
+      this.renderShell();
     };
+  }
+
+  /** Splices a deleted todo out of the already-loaded list so the caller
+   * can redraw from memory (renderShell()) instead of re-fetching — see
+   * setTodoStatus()'s doc comment for the same idea applied to a mutation
+   * rather than a removal. */
+  private dropFromCache(id: string) {
+    this.allTodos = this.allTodos.filter((t) => t.id !== id);
   }
 
   /** Roman-todo column: a lot more of these accumulate over a whole book
@@ -568,7 +645,7 @@ export class TodoHubModal extends Modal {
       if (built) return;
       built = true;
       sorted.forEach((todo) =>
-        renderTodoRow(
+        createTodoRowElement(
           this.app,
           this.plugin,
           body,
@@ -769,7 +846,7 @@ export class TodoHubModal extends Modal {
 
       const groupBox = container.createEl("div", { cls: "novel-todo-list" });
       urgent.forEach((todo) =>
-        renderTodoRow(this.app, this.plugin, groupBox, todo, rowOpts, () => this.render(), () => this.close())
+        createTodoRowElement(this.app, this.plugin, groupBox, todo, rowOpts, () => this.render(), () => this.close())
       );
     }
 
@@ -786,7 +863,7 @@ export class TodoHubModal extends Modal {
 
       const groupBox = container.createEl("div", { cls: "novel-todo-list" });
       group.forEach((todo) =>
-        renderTodoRow(this.app, this.plugin, groupBox, todo, rowOpts, () => this.render(), () => this.close())
+        createTodoRowElement(this.app, this.plugin, groupBox, todo, rowOpts, () => this.render(), () => this.close())
       );
     });
 
@@ -821,8 +898,11 @@ export class TodoHubModal extends Modal {
       checkbox.checked = true;
       checkbox.setAttr("aria-label", "Reopen this todo");
       checkbox.onchange = async () => {
-        await setTodoStatus(this.app, todo, checkbox.checked ? "done" : "open");
-        await this.render();
+        // Patches todo.status in place (see setTodoStatus) — renderShell()
+        // re-buckets it into the right column/section from the same
+        // already-loaded list, no refetch needed.
+        await setTodoStatus(this.plugin, todo, checkbox.checked ? "done" : "open");
+        this.renderShell();
       };
 
       const main = row.createEl("div", { cls: "novel-todo-row-main" });
@@ -841,7 +921,8 @@ export class TodoHubModal extends Modal {
           const file = this.app.vault.getAbstractFileByPath(todo.filePath);
           if (!(file instanceof TFile)) return;
           await removeTodo(this.app, file, todo.id);
-          await this.render();
+          this.dropFromCache(todo.id);
+          this.renderShell();
         }).open();
       };
     });
