@@ -23,8 +23,8 @@ import {
   todayDate,
 } from "../../utils/todos";
 import { addTextAreaField, addTextField } from "../FieldBuilders";
+import { createTodoPickerRowElement } from "../elements/TodoPickerRowElement";
 import { DailyPlannerModal } from "../modals/DailyPlannerModal";
-import { renderSubtaskExpandToggle, renderTodoPickerRow } from "../modals/todoRowView";
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -115,7 +115,16 @@ export class WeeklyView extends ItemView {
     const existing = this.plugin.settings.weeklySelections[this.weekStart];
     this.selection = {};
     this.todos.forEach((t) => (this.selection[t.id] = existing?.todoIds.includes(t.id) ?? false));
+    this.redrawTodosSection();
+  }
 
+  /** Same DOM rebuild as refreshTodosSection(), minus the collectTodos()
+   * disk read — for the common case where nothing outside this.todos
+   * itself changed (a "This week" toggle, a subtask flip), there's nothing
+   * to refetch. Most row-level interactions don't even need this: the
+   * picker row element patches itself directly (see TodoPickerRowElement).
+   */
+  private redrawTodosSection() {
     if (this.habitContainer) {
       this.habitContainer.empty();
       if (this.plugin.settings.habitNames.length > 0) this.renderHabitGrid(this.habitContainer);
@@ -357,7 +366,11 @@ export class WeeklyView extends ItemView {
   }
 
   private renderTodoRow(container: HTMLElement, todo: TodoItem) {
-    const row = renderTodoPickerRow(
+    // Only reached via TodoEditModal's onDone now (Save/Delete could
+    // change anything, including which group this todo belongs in) — the
+    // "This week" toggle below and a subtask flip inside the row element
+    // both patch themselves directly, no full refetch needed.
+    createTodoPickerRowElement(
       this.app,
       this.plugin,
       container,
@@ -365,23 +378,22 @@ export class WeeklyView extends ItemView {
       undefined,
       this.expandedTodoIds,
       () => this.refreshTodosSection(),
-      () => {}
+      () => {},
+      (row) => {
+        const toggle = row.createEl("button", {
+          text: this.selection[todo.id] ? "This week" : "—",
+          cls: "novel-structure-inline-btn novel-structure-mode-btn novel-todo-week-toggle",
+        });
+        if (this.selection[todo.id]) toggle.addClass("is-active");
+        toggle.onclick = (evt) => {
+          evt.stopPropagation();
+          this.selection[todo.id] = !this.selection[todo.id];
+          toggle.setText(this.selection[todo.id] ? "This week" : "—");
+          toggle.toggleClass("is-active", this.selection[todo.id]);
+          void this.saveSelection();
+        };
+      }
     );
-
-    const toggle = row.createEl("button", {
-      text: this.selection[todo.id] ? "This week" : "—",
-      cls: "novel-structure-inline-btn novel-structure-mode-btn novel-todo-week-toggle",
-    });
-    if (this.selection[todo.id]) toggle.addClass("is-active");
-    toggle.onclick = (evt) => {
-      evt.stopPropagation();
-      this.selection[todo.id] = !this.selection[todo.id];
-      toggle.setText(this.selection[todo.id] ? "This week" : "—");
-      toggle.toggleClass("is-active", this.selection[todo.id]);
-      void this.saveSelection();
-    };
-
-    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.refreshTodosSection());
   }
 
   async onClose() {}

@@ -43,9 +43,17 @@ export class TodoEditModal extends Modal {
   recurrenceDays: number | null;
   estimatedMinutes: number | null;
   notes: string;
-  onDone: () => void;
+  // `saved === true` after a plain Save — every changed field, including
+  // needsReview, was already patched onto `this.todo` in place by the
+  // individual setTodoX() calls below, so a caller can sync every on-screen
+  // copy of it directly (see TodoRowElement.syncEverywhere) instead of
+  // refetching. `saved` is false/omitted after Delete or "Reset to
+  // Google" — `this.todo` can't be trusted there (it's gone, or its true
+  // values are now unknown without a fresh fetch), so those need a real
+  // refresh no matter what a caller usually does for "saved".
+  onDone: (saved?: boolean) => void;
 
-  constructor(app: App, plugin: NovelStructurePlugin, todo: TodoItem, onDone: () => void) {
+  constructor(app: App, plugin: NovelStructurePlugin, todo: TodoItem, onDone: (saved?: boolean) => void) {
     super(app);
     this.plugin = plugin;
     this.todo = todo;
@@ -282,7 +290,7 @@ export class TodoEditModal extends Modal {
                 async () => {
                   await clearGoogleOverride(this.plugin, this.todo);
                   this.close();
-                  this.onDone();
+                  this.onDone(false);
                 }
               ).open();
             })
@@ -295,7 +303,7 @@ export class TodoEditModal extends Modal {
                   if (!(file instanceof TFile)) return;
                   await removeTodo(this.app, file, this.todo.id);
                   this.close();
-                  this.onDone();
+                  this.onDone(false);
                 }).open();
               })
       )
@@ -326,7 +334,7 @@ export class TodoEditModal extends Modal {
             // start review.
             if (this.todo.needsReview) await setTodoNeedsReview(this.plugin, this.todo, false);
             this.close();
-            this.onDone();
+            this.onDone(true);
           })
       );
   }

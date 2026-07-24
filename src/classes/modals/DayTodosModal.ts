@@ -1,9 +1,10 @@
 import { App, Modal } from "obsidian";
 import type NovelStructurePlugin from "../../main";
+import { TodoItem } from "../../types";
 import { buildTodoTargets, collectTodos, sortTodosForDisplay } from "../../utils/todos";
+import { createTodoRowElement } from "../elements/TodoRowElement";
 import { AssignDeadlineModal } from "./AssignDeadlineModal";
 import { DailyPlannerModal } from "./DailyPlannerModal";
-import { renderTodoRow } from "./todoRowView";
 import { TodoAddModal } from "./TodoAddModal";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +21,7 @@ export class DayTodosModal extends Modal {
   date: string;
   onDone: () => void;
   listEl!: HTMLElement;
+  todos: TodoItem[] = [];
 
   constructor(app: App, plugin: NovelStructurePlugin, date: string, onDone: () => void) {
     super(app);
@@ -58,15 +60,24 @@ export class DayTodosModal extends Modal {
     await this.refresh();
   }
 
+  /** Refetches from disk — use after anything that could change which
+   * todos are due this day (add, assign-deadline, must/maybe edit). */
   private async refresh() {
+    this.todos = (await collectTodos(this.plugin)).filter((t) => t.deadline === this.date && t.status !== "done");
+    this.draw();
+  }
+
+  /** Rebuilds the list from already-fetched todos — a status click never
+   * even calls this (see TodoRowElement.syncEverywhere), so in practice
+   * this only runs right after refresh() itself. */
+  private draw() {
     this.listEl.empty();
-    const todos = (await collectTodos(this.plugin)).filter((t) => t.deadline === this.date && t.status !== "done");
-    if (todos.length === 0) {
+    if (this.todos.length === 0) {
       this.listEl.createEl("p", { text: "Nothing due this day.", cls: "novel-todo-empty" });
       return;
     }
-    sortTodosForDisplay(todos).forEach((todo) =>
-      renderTodoRow(this.app, this.plugin, this.listEl, todo, {}, () => this.refresh(), () => this.close())
+    sortTodosForDisplay(this.todos).forEach((todo) =>
+      createTodoRowElement(this.app, this.plugin, this.listEl, todo, {}, () => this.refresh(), () => this.close())
     );
   }
 

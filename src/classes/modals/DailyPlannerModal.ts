@@ -14,7 +14,7 @@ import {
 import { generateTodoId } from "../../utils/noteBody";
 import { collectTodos, mondayOfWeek, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
 import { addRatingField, addTextAreaField } from "../FieldBuilders";
-import { renderSubtaskExpandToggle, renderTodoPickerRow } from "./todoRowView";
+import { createTodoPickerRowElement } from "../elements/TodoPickerRowElement";
 
 type PlannerTab = "checkin" | "schedule" | "todos" | "reflection";
 export type SelectionValue = "none" | "maybe" | "must";
@@ -447,7 +447,7 @@ export class DailyPlannerModal extends Modal {
 
   private renderTodoSelectionRow(container: HTMLElement, todo: TodoItem) {
     const suggestionLabel = this.weeklyTodoIds.has(todo.id) ? "This week" : undefined;
-    const row = renderTodoPickerRow(
+    createTodoPickerRowElement(
       this.app,
       this.plugin,
       container,
@@ -455,29 +455,28 @@ export class DailyPlannerModal extends Modal {
       suggestionLabel,
       this.expandedTodoIds,
       () => this.renderShell(),
-      () => this.close()
+      () => this.close(),
+      (row) => {
+        const toggle = row.createDiv({ cls: "novel-structure-mode-group novel-todo-selection-toggle" });
+        const buttons: HTMLElement[] = [];
+        SELECTION_OPTIONS.forEach(([value, label]) => {
+          const btn = toggle.createEl("button", {
+            text: label,
+            cls: "novel-structure-inline-btn novel-structure-mode-btn",
+          });
+          if (this.selection[todo.id] === value) btn.addClass("is-active");
+          btn.onclick = (evt) => {
+            evt.stopPropagation();
+            this.selection[todo.id] = value;
+            buttons.forEach((b) => b.removeClass("is-active"));
+            btn.addClass("is-active");
+            void this.saveSelection();
+            this.updateSelectionHint();
+          };
+          buttons.push(btn);
+        });
+      }
     );
-
-    const toggle = row.createDiv({ cls: "novel-structure-mode-group novel-todo-selection-toggle" });
-    const buttons: HTMLElement[] = [];
-    SELECTION_OPTIONS.forEach(([value, label]) => {
-      const btn = toggle.createEl("button", {
-        text: label,
-        cls: "novel-structure-inline-btn novel-structure-mode-btn",
-      });
-      if (this.selection[todo.id] === value) btn.addClass("is-active");
-      btn.onclick = (evt) => {
-        evt.stopPropagation();
-        this.selection[todo.id] = value;
-        buttons.forEach((b) => b.removeClass("is-active"));
-        btn.addClass("is-active");
-        void this.saveSelection();
-        this.updateSelectionHint();
-      };
-      buttons.push(btn);
-    });
-
-    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.renderShell());
   }
 
   // -- Reflection tab --------------------------------------------------------

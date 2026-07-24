@@ -426,7 +426,15 @@ export class TodoHubModal extends Modal {
         const editBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
         setIcon(editBtn, "pencil");
         editBtn.setAttr("aria-label", "Edit (also sorts it in)");
-        editBtn.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.render()).open();
+        // A plain Save already patched every field (including needsReview)
+        // onto `todo` in place — renderShell() picks that up straight from
+        // this.allTodos, no refetch, and correctly moves the row out of
+        // this pending section into its normal column. Delete isn't
+        // reachable from here (Google todos have no delete), and Reset
+        // needs a real refetch since the reverted values are unknown
+        // without one.
+        editBtn.onclick = () =>
+          new TodoEditModal(this.app, this.plugin, todo, (saved) => (saved ? this.renderShell() : this.render())).open();
       }
       const sortInBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
       setIcon(sortInBtn, "check");
@@ -447,7 +455,11 @@ export class TodoHubModal extends Modal {
     const editBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
     setIcon(editBtn, "pencil");
     editBtn.setAttr("aria-label", "Edit (also clears the review flag)");
-    editBtn.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.render()).open();
+    // Same reasoning as the Google branch above — Save moves the row out
+    // of this pending section via a cheap renderShell(); Delete needs a
+    // real refetch.
+    editBtn.onclick = () =>
+      new TodoEditModal(this.app, this.plugin, todo, (saved) => (saved ? this.renderShell() : this.render())).open();
 
     const acceptBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
     setIcon(acceptBtn, "check");

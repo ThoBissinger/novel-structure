@@ -140,7 +140,15 @@ export class TodoRowElement extends HTMLElement {
     const main = this.createEl("div", { cls: "novel-todo-row-main" });
     if (editable) {
       main.setAttr("aria-label", "Edit todo…");
-      main.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refresh()).open();
+      main.onclick = () =>
+        new TodoEditModal(this.app, this.plugin, todo, (saved) => {
+          // A plain Save already patched every changed field onto `todo`
+          // in place (see TodoEditModal's onDone doc comment) — sync every
+          // on-screen copy directly instead of asking the caller to
+          // refetch. Delete/Reset still need the caller's real refresh.
+          if (saved) this.syncEverywhere(todo);
+          else this.refresh();
+        }).open();
     } else {
       main.addClass("novel-todo-row-readonly");
       main.setAttr("aria-label", "Read-only (Google Tasks)");

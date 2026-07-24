@@ -1,6 +1,6 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf, debounce, setIcon } from "obsidian";
+import { ItemView, TFile, WorkspaceLeaf, debounce } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem, VIEW_TYPE_SESSION } from "../../types";
+import { TodoItem, VIEW_TYPE_SESSION } from "../../types";
 import {
   endSession,
   isInPlanningPhase,
@@ -11,11 +11,10 @@ import {
   skipPlanningPhase,
   startSession,
 } from "../../utils/session";
-import { collectTodos, isTodoEditable, isTodoRelevantFile, setTodoStatus } from "../../utils/todos";
+import { collectTodos, isTodoRelevantFile } from "../../utils/todos";
+import { createSessionRowElement } from "../elements/SessionRowElement";
 import { SessionPlanModal } from "../modals/SessionPlanModal";
-import { TodoEditModal } from "../modals/TodoEditModal";
 import { TodoHubModal } from "../modals/TodoHubModal";
-import { renderSubtaskExpandToggle } from "../modals/todoRowView";
 
 function formatMinSec(ms: number): string {
   const totalSeconds = Math.max(0, Math.round(ms / 1000));
@@ -216,52 +215,21 @@ export class SessionView extends ItemView {
   }
 
   private renderRow(container: HTMLElement, todo: TodoItem) {
-    const row = container.createEl("div", { cls: "novel-session-row" });
-
-    const editable = isTodoEditable(this.plugin, todo);
-    const statusBtn = row.createEl("span", { cls: `novel-todo-status-btn novel-todo-status-${todo.status}` });
-    if (todo.status === "done") statusBtn.setText("✓");
-    if (todo.status === "blocked") statusBtn.setText("!");
-    if (editable) {
-      statusBtn.onclick = async () => {
-        const next = todo.status === "open" ? "in_progress" : todo.status === "in_progress" ? "done" : "open";
-        await setTodoStatus(this.plugin, todo, next);
-        await this.refresh();
-      };
-    } else {
-      statusBtn.addClass("is-readonly");
-    }
-
-    const text = row.createEl("span", {
-      text: todo.text,
-      cls: "novel-session-row-text" + (todo.status === "done" ? " is-done" : ""),
-      attr: { title: todo.text },
-    });
-    if (editable) {
-      text.onclick = () => new TodoEditModal(this.app, this.plugin, todo, () => this.refresh()).open();
-    } else {
-      text.addClass("novel-todo-row-readonly");
-      text.onclick = () =>
-        new Notice("Local editing is off (Settings → Google Tasks) — edit this in Google Tasks, or turn local editing on.");
-    }
-
-    if (todo.estimatedMinutes) {
-      row.createEl("span", { text: `~${todo.estimatedMinutes}m`, cls: "novel-todo-estimate-badge" });
-    }
-    if (todo.subtasks.length > 0) {
-      const done = todo.subtasks.filter((s) => s.done).length;
-      row.createEl("span", { text: `${done}/${todo.subtasks.length}`, cls: "novel-todo-subtask-badge-compact" });
-    }
-
-    const removeBtn = row.createEl("span", { cls: "novel-todo-remove-btn" });
-    setIcon(removeBtn, "x");
-    removeBtn.setAttr("aria-label", "Remove from session");
-    removeBtn.onclick = async () => {
-      await removeSessionTodo(this.plugin, todo.id);
-      await this.refresh();
-    };
-
-    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.refresh());
+    createSessionRowElement(
+      this.app,
+      this.plugin,
+      container,
+      todo,
+      this.expandedTodoIds,
+      () => this.refresh(),
+      async () => {
+        // Removing from session only changes session.todoIds, not the
+        // todos themselves — draw() re-reads that fresh from settings, no
+        // collectTodos() refetch needed.
+        await removeSessionTodo(this.plugin, todo.id);
+        this.draw();
+      }
+    );
   }
 
   async onClose() {}

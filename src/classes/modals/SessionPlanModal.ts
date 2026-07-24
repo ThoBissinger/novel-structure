@@ -10,8 +10,8 @@ import {
   sortTodosForDisplay,
   todayDate,
 } from "../../utils/todos";
+import { createTodoPickerRowElement } from "../elements/TodoPickerRowElement";
 import { TodoAddModal } from "./TodoAddModal";
-import { renderSubtaskExpandToggle, renderTodoPickerRow } from "./todoRowView";
 
 // ---------------------------------------------------------------------------
 // The todo picker for a work session — grouped Private/Roman compact rows
@@ -100,7 +100,12 @@ export class SessionPlanModal extends Modal {
 
   private renderRow(container: HTMLElement, todo: TodoItem) {
     const suggestionLabel = this.todaySuggestedIds.has(todo.id) ? "Today" : undefined;
-    const row = renderTodoPickerRow(
+    // refresh (only reached via TodoEditModal's onDone) stays a real
+    // refetch — Save/Delete there could change anything, including
+    // whether this todo still belongs in this filtered list at all. The
+    // estimate input and "In session" toggle below both patch themselves
+    // directly, same as before.
+    createTodoPickerRowElement(
       this.app,
       this.plugin,
       container,
@@ -108,46 +113,44 @@ export class SessionPlanModal extends Modal {
       suggestionLabel,
       this.expandedTodoIds,
       () => this.refresh(),
-      () => this.close()
+      () => this.close(),
+      (row) => {
+        const estimateInput = row.createEl("input", {
+          cls: "novel-session-estimate-input",
+          attr: { type: "number", min: "1", placeholder: "min" },
+        });
+        estimateInput.value = todo.estimatedMinutes != null ? String(todo.estimatedMinutes) : "";
+        estimateInput.onclick = (evt) => evt.stopPropagation();
+        if (isTodoEditable(this.plugin, todo)) {
+          estimateInput.addEventListener("blur", async () => {
+            const n = parseInt(estimateInput.value, 10);
+            const minutes = Number.isFinite(n) && n >= 1 ? n : null;
+            if (minutes === todo.estimatedMinutes) return;
+            await setTodoEstimatedMinutes(this.plugin, todo, minutes);
+          });
+        } else {
+          // Google-sourced and local editing is off (see isTodoEditable) —
+          // budget it implicitly instead (see the session sidebar).
+          estimateInput.disabled = true;
+          estimateInput.placeholder = "n/a";
+        }
+
+        const session = this.plugin.settings.activeSession;
+        const inSession = !!session?.todoIds.includes(todo.id);
+        const toggle = row.createEl("button", {
+          text: inSession ? "In session" : "—",
+          cls: "novel-structure-inline-btn novel-structure-mode-btn novel-todo-week-toggle",
+        });
+        if (inSession) toggle.addClass("is-active");
+        toggle.onclick = async (evt) => {
+          evt.stopPropagation();
+          await toggleSessionTodo(this.plugin, todo.id);
+          const nowIn = !!this.plugin.settings.activeSession?.todoIds.includes(todo.id);
+          toggle.setText(nowIn ? "In session" : "—");
+          toggle.toggleClass("is-active", nowIn);
+        };
+      }
     );
-
-    const estimateInput = row.createEl("input", {
-      cls: "novel-session-estimate-input",
-      attr: { type: "number", min: "1", placeholder: "min" },
-    });
-    estimateInput.value = todo.estimatedMinutes != null ? String(todo.estimatedMinutes) : "";
-    estimateInput.onclick = (evt) => evt.stopPropagation();
-    if (isTodoEditable(this.plugin, todo)) {
-      estimateInput.addEventListener("blur", async () => {
-        const n = parseInt(estimateInput.value, 10);
-        const minutes = Number.isFinite(n) && n >= 1 ? n : null;
-        if (minutes === todo.estimatedMinutes) return;
-        await setTodoEstimatedMinutes(this.plugin, todo, minutes);
-        todo.estimatedMinutes = minutes;
-      });
-    } else {
-      // Google-sourced and local editing is off (see isTodoEditable) —
-      // budget it implicitly instead (see the session sidebar).
-      estimateInput.disabled = true;
-      estimateInput.placeholder = "n/a";
-    }
-
-    const session = this.plugin.settings.activeSession;
-    const inSession = !!session?.todoIds.includes(todo.id);
-    const toggle = row.createEl("button", {
-      text: inSession ? "In session" : "—",
-      cls: "novel-structure-inline-btn novel-structure-mode-btn novel-todo-week-toggle",
-    });
-    if (inSession) toggle.addClass("is-active");
-    toggle.onclick = async (evt) => {
-      evt.stopPropagation();
-      await toggleSessionTodo(this.plugin, todo.id);
-      const nowIn = !!this.plugin.settings.activeSession?.todoIds.includes(todo.id);
-      toggle.setText(nowIn ? "In session" : "—");
-      toggle.toggleClass("is-active", nowIn);
-    };
-
-    renderSubtaskExpandToggle(this.app, row, container, todo, this.expandedTodoIds, () => this.refreshList());
   }
 
   onClose() {

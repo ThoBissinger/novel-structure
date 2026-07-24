@@ -14,6 +14,8 @@ import {
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
 import { renderLinkifiedText } from "./classes/FieldBuilders";
+import { defineSessionRowElement } from "./classes/elements/SessionRowElement";
+import { defineTodoPickerRowElement } from "./classes/elements/TodoPickerRowElement";
 import { defineTodoRowElement } from "./classes/elements/TodoRowElement";
 import { GoogleTasksClient } from "./utils/googleTasks";
 import { McpHttpServer } from "./mcp/server";
@@ -117,6 +119,8 @@ export default class NovelStructurePlugin extends Plugin {
     console.debug("[novel-structure] onload start");
     await this.loadSettings();
     defineTodoRowElement();
+    defineTodoPickerRowElement();
+    defineSessionRowElement();
 
     // Deferred to onLayoutReady, not run immediately: `vault.getAbstractFileByPath`
     // for a file that genuinely exists on disk can still return null while
