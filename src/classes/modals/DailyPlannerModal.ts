@@ -1,11 +1,12 @@
 import { App, Modal, TFile, setIcon } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
+import { TodoItem } from "../../types";
 import {
   ScheduleBlock,
   computeGoalProgress,
   ensureDailyNote,
   formatGoalProgressLabel,
+  formatTime,
   readNotesTrailer,
   readWeeklyTheme,
   regenerateCheckInBody,
@@ -15,6 +16,13 @@ import { generateTodoId } from "../../utils/noteBody";
 import { collectTodos, mondayOfWeek, sortTodosForDisplay, todayDate, tomorrowDate } from "../../utils/todos";
 import { addRatingField, addTextAreaField } from "../FieldBuilders";
 import { createTodoPickerRowElement } from "../elements/TodoPickerRowElement";
+import { createScheduleBlockRowElement, ScheduleBlockRowElement } from "../elements/ScheduleBlockRowElement";
+import {
+  createScheduleSuggestionRowElement,
+  NewScheduleBlock,
+  ScheduleSuggestionRowElement,
+} from "../elements/ScheduleSuggestionRowElement";
+import { reconcileChildrenById } from "../elements/reconcile";
 
 type PlannerTab = "checkin" | "schedule" | "todos" | "reflection";
 export type SelectionValue = "none" | "maybe" | "must";
@@ -32,10 +40,6 @@ export function friendlyDateLabel(targetDate: string): string {
   if (targetDate === todayDate()) return "today";
   if (targetDate === tomorrowDate()) return "tomorrow";
   return targetDate;
-}
-
-function formatTime(mins: number): string {
-  return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 }
 
 /** A sensible default start time for the next block: right after the latest
@@ -72,6 +76,16 @@ export class DailyPlannerModal extends Modal {
   weeklyTodoIds: Set<string> = new Set();
   expandedTodoIds: Set<string> = new Set();
   hintEl?: HTMLElement;
+
+  // Schedule tab state — re-populated at the top of renderScheduleTab()
+  // each time that tab becomes active (its container is rebuilt fresh by
+  // renderShell() on every tab switch), then read/written by refreshSchedule()
+  // and the row elements' callbacks in between.
+  private scheduleBlocks: ScheduleBlock[] = [];
+  private scheduleListEl!: HTMLElement;
+  private scheduleEmptyEl!: HTMLElement;
+  private scheduleSuggestBox!: HTMLElement;
+  private scheduleSuggestHeader!: HTMLElement;
 
   constructor(
     app: App,
@@ -226,125 +240,83 @@ export class DailyPlannerModal extends Modal {
    * actually planned. Today's must/maybe picks (from the Todos tab) that
    * aren't on the schedule yet show up as standing suggestions right here —
    * turning one into a block just needs a start time, plus a duration only
-   * if the todo doesn't already have its own estimated time. Rebuilding only
-   * the scheduled-list/suggestions containers on every add/remove (not the
-   * whole tab) keeps the custom-block row's own in-progress input untouched. */
+   * if the todo doesn't already have its own estimated time. Both lists are
+   * reconciled by id (ScheduleBlockRowElement/ScheduleSuggestionRowElement)
+   * on every add/remove/toggle instead of rebuilt from scratch, so an
+   * unrelated action never touches another row's own in-progress input —
+   * including the bottom custom-block add row, which was already its own
+   * untouched persistent form before this. */
   private renderScheduleTab(container: HTMLElement) {
     const fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter ?? {};
-    const blocks: ScheduleBlock[] = ((fm.scheduleBlocks as ScheduleBlock[] | undefined) ?? []).slice();
-    const commitBlocks = () => this.frontmatterSave((f) => (f.scheduleBlocks = blocks))();
+    this.scheduleBlocks = ((fm.scheduleBlocks as ScheduleBlock[] | undefined) ?? []).slice();
 
-    const list = container.createEl("div", { cls: "novel-planner-schedule-list" });
-    const suggestBox = container.createEl("div", { cls: "novel-planner-schedule-suggestions" });
-    const refresh = () => {
-      this.renderScheduledList(list, blocks, commitBlocks, refresh);
-      this.renderScheduleSuggestions(suggestBox, blocks, commitBlocks, refresh);
-    };
-    refresh();
+    this.scheduleListEl = container.createEl("div", { cls: "novel-planner-schedule-list" });
+    this.scheduleEmptyEl = this.scheduleListEl.createEl("p", { text: "Nothing scheduled yet.", cls: "novel-todo-empty" });
+    this.scheduleSuggestBox = container.createEl("div", { cls: "novel-planner-schedule-suggestions" });
+    this.scheduleSuggestHeader = this.scheduleSuggestBox.createEl("div", { cls: "novel-todo-column-header" });
+    this.scheduleSuggestHeader.createEl("h4", { text: "From today's todos" });
+    this.refreshSchedule();
 
-    this.renderScheduleAddRow(container, blocks, commitBlocks, refresh);
+    this.renderScheduleAddRow(container, this.scheduleBlocks, () => this.commitScheduleBlocks(), () => this.refreshSchedule());
   }
 
-  private renderScheduledList(
-    list: HTMLElement,
-    blocks: ScheduleBlock[],
-    commitBlocks: () => Promise<void>,
-    refresh: () => void
-  ) {
-    list.empty();
-    if (blocks.length === 0) {
-      list.createEl("p", { text: "Nothing scheduled yet.", cls: "novel-todo-empty" });
-    }
-    blocks
-      .slice()
-      .sort((a, b) => a.startMinutes - b.startMinutes)
-      .forEach((block) => {
-        const row = list.createEl("div", { cls: "novel-planner-schedule-row" });
-        const checkbox = row.createEl("input", { cls: "novel-planner-hourly-checkbox", attr: { type: "checkbox" } });
-        checkbox.checked = block.done;
-        checkbox.onclick = () => {
-          block.done = checkbox.checked;
-          void commitBlocks();
-          row.toggleClass("is-done", block.done);
-        };
-        row.toggleClass("is-done", block.done);
-        row.createEl("span", {
-          text: `${formatTime(block.startMinutes)}–${formatTime(block.startMinutes + block.durationMinutes)}`,
-          cls: "novel-planner-schedule-time",
-        });
-        row.createEl("span", { text: block.label, cls: "novel-planner-schedule-text" });
-        const removeBtn = row.createEl("span", { cls: "novel-todo-remove-btn" });
-        setIcon(removeBtn, "x");
-        removeBtn.setAttr("aria-label", "Remove from schedule");
-        removeBtn.onclick = () => {
-          const idx = blocks.findIndex((b) => b.id === block.id);
-          if (idx !== -1) blocks.splice(idx, 1);
-          void commitBlocks();
-          refresh();
-        };
-      });
+  private async commitScheduleBlocks(): Promise<void> {
+    await this.frontmatterSave((f) => (f.scheduleBlocks = this.scheduleBlocks))();
   }
 
-  /** Today's/tomorrow's must/maybe picks not already on the schedule — a
-   * standing suggestion list, not a picker you have to open, so scheduling
-   * one of them is just "set a time (and a duration, if it doesn't already
-   * have one) and add it". */
-  private renderScheduleSuggestions(
-    box: HTMLElement,
-    blocks: ScheduleBlock[],
-    commitBlocks: () => Promise<void>,
-    refresh: () => void
-  ) {
-    box.empty();
+  /** Pure in-memory reconcile of both schedule lists from `this.scheduleBlocks`
+   * — no disk read. Called after every toggle/add/remove; each row's own
+   * diff-and-skip means an action in one list never touches the other. */
+  private refreshSchedule() {
+    const blocks = this.scheduleBlocks;
+    const sorted = [...blocks].sort((a, b) => a.startMinutes - b.startMinutes);
+    this.scheduleEmptyEl.style.display = sorted.length === 0 ? "" : "none";
+    reconcileChildrenById<ScheduleBlock, ScheduleBlockRowElement>(
+      this.scheduleListEl,
+      "novel-schedule-block-row-el",
+      sorted,
+      (b) => b.id,
+      (b) =>
+        createScheduleBlockRowElement(
+          this.scheduleListEl,
+          b,
+          () => this.commitScheduleBlocks(),
+          async () => {
+            const idx = blocks.findIndex((x) => x.id === b.id);
+            if (idx !== -1) blocks.splice(idx, 1);
+            await this.commitScheduleBlocks();
+            this.refreshSchedule();
+          }
+        ),
+      (el, b) => (el.block = b)
+    );
+
     const scheduledTodoIds = new Set(blocks.map((b) => b.todoId).filter((id): id is string => !!id));
     const suggestions = this.todos.filter(
       (t) => (this.selection[t.id] === "must" || this.selection[t.id] === "maybe") && !scheduledTodoIds.has(t.id)
     );
-    if (suggestions.length === 0) return;
-
-    box.createEl("div", { cls: "novel-todo-column-header" }).createEl("h4", { text: "From today's todos" });
-    suggestions.forEach((todo) => {
-      const row = box.createEl("div", { cls: "novel-planner-schedule-suggestion-row" });
-      const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
-      dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-      row.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
-
-      const timeInput = row.createEl("input", {
-        cls: "novel-planner-schedule-add-time",
-        attr: { type: "time", step: "900" },
-      });
-      timeInput.value = formatTime(nextDefaultStartMinutes(blocks));
-
-      let durationInput: HTMLInputElement | null = null;
-      if (todo.estimatedMinutes) {
-        row.createEl("span", { text: `~${todo.estimatedMinutes}m`, cls: "novel-todo-estimate-badge" });
-      } else {
-        durationInput = row.createEl("input", {
-          cls: "novel-planner-schedule-add-duration",
-          attr: { type: "number", min: "15", step: "15", placeholder: "min" },
-        });
-        durationInput.value = "15";
-      }
-
-      const addBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
-      setIcon(addBtn, "plus");
-      addBtn.setAttr("aria-label", "Add to schedule");
-      addBtn.onclick = () => {
-        const [h, m] = timeInput.value.split(":").map(Number);
-        if (Number.isNaN(h) || Number.isNaN(m)) return;
-        const duration = todo.estimatedMinutes ?? Math.max(15, parseInt(durationInput?.value ?? "15", 10) || 15);
-        blocks.push({
-          id: generateTodoId(),
-          startMinutes: h * 60 + m,
-          durationMinutes: duration,
-          todoId: todo.id,
-          label: todo.text,
-          done: false,
-        });
-        void commitBlocks();
-        refresh();
-      };
-    });
+    this.scheduleSuggestHeader.style.display = suggestions.length === 0 ? "none" : "";
+    const defaultStart = nextDefaultStartMinutes(blocks);
+    reconcileChildrenById<TodoItem, ScheduleSuggestionRowElement>(
+      this.scheduleSuggestBox,
+      "novel-schedule-suggestion-row-el",
+      suggestions,
+      (t) => t.id,
+      (t) =>
+        createScheduleSuggestionRowElement(this.scheduleSuggestBox, t, defaultStart, async (newBlock: NewScheduleBlock) => {
+          blocks.push({
+            id: generateTodoId(),
+            startMinutes: newBlock.startMinutes,
+            durationMinutes: newBlock.durationMinutes,
+            todoId: newBlock.todoId,
+            label: newBlock.label,
+            done: false,
+          });
+          await this.commitScheduleBlocks();
+          this.refreshSchedule();
+        }),
+      (el, t) => (el.todo = t)
+    );
   }
 
   /** For anything that isn't one of today's todos (a break, an errand, …). */

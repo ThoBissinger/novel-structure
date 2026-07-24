@@ -1,15 +1,25 @@
-import { App, Modal, setIcon } from "obsidian";
+import { App, Modal } from "obsidian";
 import type NovelStructurePlugin from "../../main";
-import { PRIORITY_COLORS, TodoItem } from "../../types";
-import { collectTodos, setTodoDeadline, sortTodosForDisplay } from "../../utils/todos";
+import { TodoItem } from "../../types";
+import { collectTodos, sortTodosForDisplay } from "../../utils/todos";
+import { createAssignDeadlineRowElement, AssignDeadlineRowElement } from "../elements/AssignDeadlineRowElement";
+import { reconcileChildrenById } from "../elements/reconcile";
 
 // ---------------------------------------------------------------------------
 // Picks an existing todo (from anywhere — private or any scene) and moves
 // its deadline to a specific day, opened from a Roadmap day cell/modal.
-// Stays open after each assignment (re-fetching, so an assigned todo's
-// updated deadline badge shows immediately) so several todos can be dropped
-// onto the same day in one pass instead of reopening this each time.
+// Stays open after each assignment so several todos can be dropped onto the
+// same day in one pass instead of reopening this each time. The two group
+// boxes (Private/Roman) are built once and reconciled by todo id on every
+// filter keystroke or assignment — see AssignDeadlineRowElement, which
+// patches itself (and re-sorts its group) directly on assign, so a click
+// never needs a full refetch.
 // ---------------------------------------------------------------------------
+
+const GROUPS: ["Private" | "Roman", TodoItem["source"]][] = [
+  ["Private", "private"],
+  ["Roman", "scene"],
+];
 
 export class AssignDeadlineModal extends Modal {
   plugin: NovelStructurePlugin;
@@ -17,7 +27,9 @@ export class AssignDeadlineModal extends Modal {
   onDone: () => void;
   filterText = "";
   todos: TodoItem[] = [];
-  listEl!: HTMLElement;
+  private groupsEl!: HTMLElement;
+  private emptyEl!: HTMLElement;
+  private groupBoxes = new Map<string, { header: HTMLElement; list: HTMLElement }>();
 
   constructor(app: App, plugin: NovelStructurePlugin, date: string, onDone: () => void) {
     super(app);
@@ -44,7 +56,15 @@ export class AssignDeadlineModal extends Modal {
       this.refreshList();
     };
 
-    this.listEl = contentEl.createEl("div", { cls: "novel-todo-selection-groups" });
+    this.groupsEl = contentEl.createEl("div", { cls: "novel-todo-selection-groups" });
+    this.emptyEl = this.groupsEl.createEl("p", { text: "No matching todos.", cls: "novel-todo-empty" });
+    GROUPS.forEach(([label]) => {
+      const header = this.groupsEl.createEl("div", { cls: "novel-todo-column-header" });
+      header.createEl("h4", { text: label });
+      const list = this.groupsEl.createEl("div", { cls: "novel-todo-list" });
+      this.groupBoxes.set(label, { header, list });
+    });
+
     await this.refresh();
   }
 
@@ -53,52 +73,33 @@ export class AssignDeadlineModal extends Modal {
     this.refreshList();
   }
 
+  /** Pure in-memory redraw from the already-loaded `todos` — no disk read.
+   * Called on every filter keystroke and after every assignment (the row
+   * itself already patched the todo in place; this just re-sorts/re-
+   * reconciles, since a new deadline can move a todo within its group). */
   private refreshList() {
-    this.listEl.empty();
     const q = this.filterText.trim().toLowerCase();
     const filtered = q
       ? this.todos.filter((t) => t.text.toLowerCase().includes(q) || t.fileTitle.toLowerCase().includes(q))
       : this.todos;
 
-    if (filtered.length === 0) {
-      this.listEl.createEl("p", { text: "No matching todos.", cls: "novel-todo-empty" });
-      return;
-    }
-
-    const groups: [string, TodoItem[]][] = [
-      ["Private", filtered.filter((t) => t.source === "private")],
-      ["Roman", filtered.filter((t) => t.source === "scene")],
-    ];
-    groups.forEach(([label, group]) => {
-      if (group.length === 0) return;
-      this.listEl.createEl("div", { cls: "novel-todo-column-header" }).createEl("h4", { text: label });
-      const box = this.listEl.createEl("div", { cls: "novel-todo-list" });
-      sortTodosForDisplay(group).forEach((todo) => this.renderRow(box, todo));
+    let anyGroup = false;
+    GROUPS.forEach(([label, source]) => {
+      const group = sortTodosForDisplay(filtered.filter((t) => t.source === source));
+      const { header, list } = this.groupBoxes.get(label)!;
+      header.style.display = group.length === 0 ? "none" : "";
+      list.style.display = group.length === 0 ? "none" : "";
+      if (group.length > 0) anyGroup = true;
+      reconcileChildrenById<TodoItem, AssignDeadlineRowElement>(
+        list,
+        "novel-assign-deadline-row-el",
+        group,
+        (t) => t.id,
+        (t) => createAssignDeadlineRowElement(this.app, this.plugin, list, t, this.date, () => this.refreshList()),
+        (el, t) => (el.todo = t)
+      );
     });
-  }
-
-  private renderRow(container: HTMLElement, todo: TodoItem) {
-    const row = container.createEl("div", { cls: "novel-todo-row novel-todo-row-compact" });
-
-    const dot = row.createEl("span", { cls: "novel-todo-priority-dot" });
-    dot.style.backgroundColor = PRIORITY_COLORS[todo.priority];
-
-    const main = row.createEl("div", { cls: "novel-todo-row-main" });
-    main.createEl("span", { text: todo.text, cls: "novel-todo-text", attr: { title: todo.text } });
-    if (todo.source !== "private") {
-      main.createEl("span", { text: todo.fileTitle, cls: "novel-todo-source-compact" });
-    }
-    if (todo.deadline) {
-      main.createEl("span", { text: todo.deadline, cls: "novel-todo-deadline-badge" });
-    }
-
-    const assignBtn = row.createEl("span", { cls: "novel-todo-open-btn" });
-    setIcon(assignBtn, "calendar-check");
-    assignBtn.setAttr("aria-label", `Set deadline to ${this.date}`);
-    assignBtn.onclick = async () => {
-      await setTodoDeadline(this.plugin, todo, this.date);
-      await this.refresh();
-    };
+    this.emptyEl.style.display = anyGroup ? "none" : "";
   }
 
   onClose() {

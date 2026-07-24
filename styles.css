@@ -636,6 +636,25 @@ textarea.novel-board-field-input {
   padding-right: 6px;
 }
 
+/* All of these used to be plain <div>s, which are block-level by default;
+   now that they're custom elements they default to `display: inline`
+   instead, which breaks their own box (border/padding/background render
+   but don't clear properly around block children) and the layout below
+   them. Rows already get `display: flex` from `.novel-todo-row`; this is
+   only the container elements that had no display rule of their own. */
+novel-todo-group-el,
+novel-todo-scene-group-el,
+novel-todo-column-el,
+novel-todo-manuscript-column-el,
+novel-todo-quick-section-el,
+novel-todo-day-box-el,
+novel-todo-completed-el,
+novel-plan-tab-el,
+novel-manage-tab-el,
+novel-subtask-list-el {
+  display: block;
+}
+
 /* The daily-plan tab's content is capped narrower than the body itself —
    reads as "just today", not "the whole book". */
 .novel-todo-plan-tab {

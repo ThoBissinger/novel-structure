@@ -31,6 +31,12 @@ export interface ScheduleBlock {
   done: boolean;
 }
 
+/** "HH:MM" for a minutes-since-midnight schedule value — shared by
+ * DailyPlannerModal and its ScheduleBlockRowElement/ScheduleSuggestionRowElement. */
+export function formatTime(mins: number): string {
+  return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+}
+
 export interface DailyCheckIn {
   date: string;
   rested: number | null;

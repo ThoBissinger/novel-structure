@@ -14,9 +14,26 @@ import {
 import { extractLinkBasename, isStructureFile } from "./utils/files";
 import { calculatePages, countWords } from "./utils/text";
 import { renderLinkifiedText } from "./classes/FieldBuilders";
+import { defineAssignDeadlineRowElement } from "./classes/elements/AssignDeadlineRowElement";
+import { defineCompletedPrivateSectionElement } from "./classes/elements/CompletedPrivateSectionElement";
+import { defineCompletedTodoRowElement } from "./classes/elements/CompletedTodoRowElement";
+import { defineDayBoxElement } from "./classes/elements/DayBoxElement";
+import { defineManageTabElement } from "./classes/elements/ManageTabElement";
+import { definePlanTabElement } from "./classes/elements/PlanTabElement";
+import { defineQuickTodoRowElement } from "./classes/elements/QuickTodoRowElement";
+import { defineTodoManuscriptColumnElement } from "./classes/elements/TodoManuscriptColumnElement";
+import { defineTodoSceneGroupElement } from "./classes/elements/TodoSceneGroupElement";
 import { defineSessionRowElement } from "./classes/elements/SessionRowElement";
+import { defineTodoColumnElement } from "./classes/elements/TodoColumnElement";
+import { defineTodoGroupElement } from "./classes/elements/TodoGroupElement";
+import { defineTodoListElement } from "./classes/elements/TodoListElement";
 import { defineTodoPickerRowElement } from "./classes/elements/TodoPickerRowElement";
+import { defineTodoQuickSectionElement } from "./classes/elements/TodoQuickSectionElement";
 import { defineTodoRowElement } from "./classes/elements/TodoRowElement";
+import { defineSubtaskListElement } from "./classes/elements/SubtaskListElement";
+import { defineSubtaskRowElement } from "./classes/elements/SubtaskRowElement";
+import { defineScheduleBlockRowElement } from "./classes/elements/ScheduleBlockRowElement";
+import { defineScheduleSuggestionRowElement } from "./classes/elements/ScheduleSuggestionRowElement";
 import { GoogleTasksClient } from "./utils/googleTasks";
 import { McpHttpServer } from "./mcp/server";
 import { CharacterOverviewModal } from "./classes/modals/CharacterOverviewModal";
@@ -121,6 +138,23 @@ export default class NovelStructurePlugin extends Plugin {
     defineTodoRowElement();
     defineTodoPickerRowElement();
     defineSessionRowElement();
+    defineTodoListElement();
+    defineQuickTodoRowElement();
+    defineTodoGroupElement();
+    defineTodoSceneGroupElement();
+    defineTodoColumnElement();
+    defineTodoManuscriptColumnElement();
+    defineTodoQuickSectionElement();
+    defineDayBoxElement();
+    defineCompletedTodoRowElement();
+    defineCompletedPrivateSectionElement();
+    definePlanTabElement();
+    defineAssignDeadlineRowElement();
+    defineSubtaskRowElement();
+    defineSubtaskListElement();
+    defineScheduleBlockRowElement();
+    defineScheduleSuggestionRowElement();
+    defineManageTabElement();
 
     // Deferred to onLayoutReady, not run immediately: `vault.getAbstractFileByPath`
     // for a file that genuinely exists on disk can still return null while
